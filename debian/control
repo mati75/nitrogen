@@ -1,0 +1,23 @@
+Source: nitrogen
+Section: x11
+Priority: extra
+Maintainer: Nico Golde <nion@debian.org>
+Build-Depends: debhelper (>= 7), autotools-dev, libgtkmm-2.4-dev, libxinerama-dev, autoconf, autopoint, automake, dpkg-dev (>= 1.16.1~)
+Standards-Version: 3.9.4
+Homepage: http://projects.l3ib.org/nitrogen/
+
+Package: nitrogen
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: wallpaper browser and changing utility for X
+ nitrogen is a graphical wallpaper utility that can be used in two
+ modes, browser and recall.
+ Some of the things to look for in nitrogen are:
+ .
+  * Multihead and Xinerama support (setting
+    different wallpapers for each monitor)
+  * Recall mode to restore wallpapers via startup script
+  * Uses freedesktop.org standard for thumbnails
+  * Can set GNOME background
+  * Command line set modes for script usage
+  * Inotify monitoring of browsed directories

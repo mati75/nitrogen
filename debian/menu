@@ -1,0 +1,2 @@
+?package(nitrogen):needs="X11" section="Applications/System/Administration" \
+title="nitrogen" command="/usr/bin/nitrogen"

@@ -1,0 +1,60 @@
+From 227ea7a82f698807df7ea038f6a0fd4febb77b75 Mon Sep 17 00:00:00 2001
+From: Andrew Starr-Bochicchio <a.starr.b@gmail.com>
+Date: Sat, 18 May 2013 11:22:49 -0400
+Subject: [PATCH] Add a desktop file (Closes: #28).
+
+---
+ configure.ac             |  2 +-
+ data/Makefile.am         | 11 +++++++++++
+ data/nitrogen.desktop.in |  8 ++++++++
+ 3 files changed, 20 insertions(+), 1 deletion(-)
+ create mode 100644 data/nitrogen.desktop.in
+
+diff --git a/configure.ac b/configure.ac
+index aa4dc42..9828cdf 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -68,7 +68,7 @@ fi
+ AC_SUBST(NITROGEN_LIBS)
+ AC_SUBST(NITROGEN_CFLAGS)
+ 
+-AC_CONFIG_FILES(Makefile src/Makefile data/Makefile data/icons/Makefile po/Makefile.in)
++AC_CONFIG_FILES(Makefile src/Makefile data/Makefile data/nitrogen.desktop data/icons/Makefile po/Makefile.in)
+ AC_OUTPUT
+ 
+ dnl syscrash says don't test for inotify support in kernel for some reason
+diff --git a/data/Makefile.am b/data/Makefile.am
+index 6b21ef0..02dd975 100644
+--- a/data/Makefile.am
++++ b/data/Makefile.am
+@@ -1,2 +1,13 @@
+ SUBDIRS = icons
++
++desktopdir = $(datadir)/applications
++desktop_DATA = nitrogen.desktop
++
++UPDATE_DESKTOP = update-desktop-database $(datadir)/applications || :
++
++install-data-hook: 
++	$(UPDATE_DESKTOP)
++uninstall-hook: 
++	$(UPDATE_DESKTOP)
++
+ EXTRA_DIST = icon-theme-installer
+diff --git a/data/nitrogen.desktop.in b/data/nitrogen.desktop.in
+new file mode 100644
+index 0000000..3489fc9
+--- /dev/null
++++ b/data/nitrogen.desktop.in
+@@ -0,0 +1,8 @@
++[Desktop Entry]
++Type=Application
++Exec=@PACKAGE@
++Name=@PACKAGE_NAME@
++Categories=Utility;GTK
++Icon=@PACKAGE@
++Comment=Browse and set desktop backgrounds
++Keywords=background;desktop;
+-- 
+1.8.1.6
+
