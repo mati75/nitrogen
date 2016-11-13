@@ -1,6 +1,6 @@
 /*
 
-This file is from Nitrogen, an X11 background setter.  
+This file is from Nitrogen, an X11 background setter.
 Copyright (C) 2006  Dave Foster & Javeed Shaikh
 
 This program is free software; you can redistribute it and/or
@@ -34,8 +34,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 // leethax constructor
 
-NWindow::NWindow (void) : apply (Gtk::Stock::APPLY), is_multihead(false), is_xinerama(false), btn_prefs(Gtk::Stock::PREFERENCES) {
-	
+NWindow::NWindow(SetBG* bg_setter) : apply (Gtk::Stock::APPLY), btn_prefs(Gtk::Stock::PREFERENCES) {
+    this->bg_setter = bg_setter;
+
 	set_border_width (5);
 	set_default_size (450, 500);
 
@@ -50,9 +51,9 @@ NWindow::NWindow (void) : apply (Gtk::Stock::APPLY), is_multihead(false), is_xin
 	bot_hbox.pack_start (select_mode, FALSE, FALSE, 0);
 	bot_hbox.pack_start (select_display, FALSE, FALSE, 0);
 	bot_hbox.pack_start(button_bgcolor, FALSE, FALSE, 0);
-	
+
 	bot_hbox.pack_end(apply, FALSE, FALSE, 0);
-    bot_hbox.pack_end(btn_prefs, FALSE, FALSE, 0);
+	bot_hbox.pack_end(btn_prefs, FALSE, FALSE, 0);
 
 	// add to main box
 	main_vbox.pack_start (view, TRUE, TRUE, 0);
@@ -62,7 +63,7 @@ NWindow::NWindow (void) : apply (Gtk::Stock::APPLY), is_multihead(false), is_xin
     view.signal_selected.connect(sigc::mem_fun(*this, &NWindow::sighandle_dblclick_item));
 	apply.signal_clicked ().connect (sigc::mem_fun(*this, &NWindow::sighandle_click_apply));
     btn_prefs.signal_clicked().connect(sigc::mem_fun(*this, &NWindow::sighandle_btn_prefs));
-	
+
     // set icon
 	try {
 		Glib::RefPtr<Gtk::IconTheme> icontheme = Gtk::IconTheme::get_default();
@@ -78,23 +79,80 @@ NWindow::NWindow (void) : apply (Gtk::Stock::APPLY), is_multihead(false), is_xin
 	} catch  (Gtk::IconThemeError e) {
 		// don't even worry about it!
 	}
-	
+
+	// accel group for keyboard shortcuts
+	// unfortunately we have to basically make a menu which we never add to the UI
+	m_action_group = Gtk::ActionGroup::create();
+	m_action_group->add(Gtk::Action::create("FileMenu", ""));
+	m_action_group->add(Gtk::Action::create("Quit", Gtk::Stock::QUIT),
+						Gtk::AccelKey("<control>Q"),
+						sigc::mem_fun(*this, &NWindow::sighandle_accel_quit));
+
+	m_action_group->add(Gtk::Action::create("Close", Gtk::Stock::CLOSE),
+						Gtk::AccelKey("<control>W"),
+						sigc::mem_fun(*this, &NWindow::sighandle_accel_quit));
+
+    m_action_group->add(Gtk::Action::create("Random", Gtk::Stock::MEDIA_NEXT),
+                        Gtk::AccelKey("<control>R"),
+                        sigc::mem_fun(*this, &NWindow::sighandle_random));
+
+	m_ui_manager = Gtk::UIManager::create();
+	m_ui_manager->insert_action_group(m_action_group);
+
+	add_accel_group(m_ui_manager->get_accel_group());
+
+	Glib::ustring ui = "<ui>"
+						"<menubar name='MenuBar'>"
+						"<menu action='FileMenu'>"
+						"<menuitem action='Random' />"
+						"<menuitem action='Close' />"
+						"<menuitem action='Quit' />"
+						"</menu>"
+						"</menubar>"
+						"</ui>";
+	m_ui_manager->add_ui_from_string(ui);
+
     m_dirty = false;
 }
 
 // shows all of our widgets
 
 void NWindow::show (void) {
-	view.show ();
-	select_mode.show ();
-	if ( this->is_multihead ) select_display.show();
-	apply.show ();
-	bot_hbox.show ();
-	main_vbox.show ();
-	button_bgcolor.show();
+    view.show();
+    select_mode.show();
+    // show only if > 1 entry in box
+    if (this->map_displays.size() > 1) select_display.show();
+    apply.show();
+    bot_hbox.show();
+    main_vbox.show();
+    button_bgcolor.show();
     btn_prefs.show();
 
-	this->set_title("Nitrogen");
+    this->set_title("Nitrogen");
+}
+
+/**
+ * Handles the user pressing Ctrl+Q or Ctrl+W, standard quit buttons.
+ */
+void NWindow::sighandle_accel_quit() {
+    if (!handle_exit_request())
+        hide();
+}
+
+/**
+ * Handles the user pressing Ctrl+R to get a random image.
+ */
+void NWindow::sighandle_random() {
+    Glib::Rand rand;
+
+    guint size = view.store->children().size();
+    guint idx = rand.get_int_range(0, size);
+
+    Glib::ustring tidx = Glib::ustring::compose("%1", idx);
+    Gtk::TreeModel::Path path(tidx);
+    Gtk::TreeModel::const_iterator iter = view.store->get_iter(path);
+
+    view.set_selected(path, &iter);
 }
 
 /**
@@ -105,34 +163,45 @@ void NWindow::sighandle_dblclick_item (const Gtk::TreeModel::Path& path) {
 	// find out which image was double clicked
 	Gtk::TreeModel::iterator iter = (view.store)->get_iter(path);
 	Gtk::TreeModel::Row row = *iter;
-	this->set_bg(row[view.record.Filename]);
 
-    // preview - set dirty flag
-    m_dirty = true;
+    // preview - set dirty flag, if setter says we should
+	m_dirty = this->set_bg(row[view.record.Filename]);
 }
 
 /**
- * Handles the user pressing the apply button.  Grabs the selected items and
- * calls set_bg on it. It also saves the bg and closes the application if 
- * the app is not multiheaded, or the full xin desktop is selected.
+ * Handles the user pressing the apply button.
  */
 void NWindow::sighandle_click_apply (void) {
-	
-	// find out which image is currently selected
-	Gtk::TreeModel::iterator iter = view.get_selected ();
-	Gtk::TreeModel::Row row = *iter;
+    this->apply_bg();
+}
+
+/**
+ * Performs the apply action
+ * Grabs the selected items and
+ * calls set_bg on it. It also saves the bg and closes the application if
+ * the app is not multiheaded, or the full xin desktop is selected.
+ */
+void NWindow::apply_bg () {
+
+    // find out which image is currently selected
+    Gtk::TreeModel::iterator iter = view.get_selected ();
+    Gtk::TreeModel::Row row = *iter;
     Glib::ustring file = row[view.record.Filename];
-	this->set_bg(file);
+    bool saveToConfig = this->set_bg(file);
 
     // apply - remove dirty flag
     m_dirty = false;
 
     SetBG::SetMode mode = SetBG::string_to_mode( this->select_mode.get_active_data() );
-	Glib::ustring thedisp = this->select_display.get_active_data(); 
-	Gdk::Color bgcolor = this->button_bgcolor.get_color();
+    Glib::ustring thedisp = this->select_display.get_active_data();
+    Gdk::Color bgcolor = this->button_bgcolor.get_color();
 
-	// save	
-    Config::get_instance()->set_bg(thedisp, file, mode, bgcolor);
+    // save
+    if (saveToConfig)
+        Config::get_instance()->set_bg(thedisp, file, mode, bgcolor);
+
+    // tell the bg setter to forget about the first pixmap
+    bg_setter->clear_first_pixmaps();
 
     // tell the row that he's now on thedisp
     row[view.record.CurBGOnDisp] = thedisp;
@@ -144,7 +213,7 @@ void NWindow::sighandle_click_apply (void) {
     // old background on thedisp, but could be 2 items if xinerama individual bgs
     // are replaced by the fullscreen xinerama.
     for (Gtk::TreeIter i = view.store->children().begin(); i != view.store->children().end(); i++)
-	{
+    {
         Glib::ustring curbgondisp = (*i)[view.record.CurBGOnDisp];
         if (curbgondisp == "")
             continue;
@@ -165,49 +234,68 @@ void NWindow::sighandle_click_apply (void) {
         else
             (*i)[view.record.Description] = Util::make_current_set_string(this, filename, (*mapiter).first);
     }
+}
 
+/**
+ * Common handler for window delete or key accels.
+ *
+ * Prompts the user to save if necessary.
+ */
+bool NWindow::handle_exit_request()
+{
+    if (m_dirty)
+    {
+        int result;
+        Gtk::MessageDialog dialog(*this,
+            _("You previewed an image without applying it, apply?"), false,
+            Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_NONE, true);
+
+        dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
+        dialog.add_button(Gtk::Stock::NO, Gtk::RESPONSE_NO);
+        dialog.add_button(Gtk::Stock::YES, Gtk::RESPONSE_YES);
+
+        dialog.set_default_response(Gtk::RESPONSE_YES);
+        result = dialog.run();
+
+        switch (result)
+        {
+            case Gtk::RESPONSE_YES:
+                this->apply_bg();
+                break;
+            case Gtk::RESPONSE_NO:
+                bg_setter->reset_first_pixmaps();
+                break;
+            case Gtk::RESPONSE_CANCEL:
+            case Gtk::RESPONSE_DELETE_EVENT:
+                return true;
+        };
+    }
+
+    return false;
 }
 
 bool NWindow::on_delete_event(GdkEventAny *event)
 {
-    if (m_dirty)
-    {
-        Gtk::MessageDialog dialog(*this, _("You previewed an image without applying it, exit anyway?"), false, Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_YES_NO, true);
-
-        int result = dialog.run();
-        switch (result)
-        {
-            case Gtk::RESPONSE_YES:
-
-                break;
-            case Gtk::RESPONSE_NO:
-                return true;
-                break;
-        };
-    }
-
-    return Gtk::Window::on_delete_event(event);
+    return handle_exit_request();
 }
 
 /**
- * Queries the necessary widgets to get the data needed to set a bg.  * 
+ * Queries the necessary widgets to get the data needed to set a bg.  *
  * @param	file	The file to set the bg to
+ *
+ * @returns If the dirty flag should be set or not
  */
-void NWindow::set_bg(const Glib::ustring file) {
+bool NWindow::set_bg(const Glib::ustring file) {
 
 	// get the data from the active items
-	SetBG::SetMode mode = SetBG::string_to_mode( this->select_mode.get_active_data() );
-	Glib::ustring thedisp = this->select_display.get_active_data(); 
-	Gdk::Color bgcolor = this->button_bgcolor.get_color();
+	SetBG::SetMode mode   = SetBG::string_to_mode(this->select_mode.get_active_data());
+	Glib::ustring thedisp = this->select_display.get_active_data();
+	Gdk::Color bgcolor    = this->button_bgcolor.get_color();
 
 	// set it
-#ifdef USE_XINERAMA
-	if (this->is_xinerama)
-		SetBG::set_bg_xinerama(xinerama_info, xinerama_num_screens, thedisp, file, mode, bgcolor);
-	else
-#endif
-		SetBG::set_bg(thedisp, file, mode, bgcolor);
-	
+    bg_setter->set_bg(thedisp, file, mode, bgcolor);
+
+    return bg_setter->save_to_config();
 }
 
 // leethax destructor
@@ -217,7 +305,7 @@ NWindow::~NWindow () {}
  * Creates our ImageCombo boxes
  */
 void NWindow::setup_select_boxes() {
-		
+
 	Glib::RefPtr<Gtk::IconTheme> icontheme = Gtk::IconTheme::get_default();
 	Glib::RefPtr<Gdk::Pixbuf> icon, genericicon, video_display_icon;
 
@@ -270,133 +358,85 @@ void NWindow::setup_select_boxes() {
 	this->select_mode.add_image_row( icon, _("Zoomed"), SetBG::mode_to_string(SetBG::SET_ZOOM), false );
 	this->select_mode.add_image_row( icon, _("Zoomed Fill"), SetBG::mode_to_string(SetBG::SET_ZOOM_FILL), false );
 
+
+    // @TODO GET ALL THIS INTEL FROM THE SETTER
+    //
 	// displays
-	Glib::RefPtr<Gdk::DisplayManager> manager = Gdk::DisplayManager::get();
-	Glib::RefPtr<Gdk::Display> disp	= manager->get_default_display();
+    map_displays = this->bg_setter->get_active_displays();
 
-	if ( disp->get_n_screens() > 1 ) 
-	{
-		this->is_multihead = true;	
-
-		for (int i=0; i<disp->get_n_screens(); i++) {
-			Glib::RefPtr<Gdk::Screen> screen = disp->get_screen(i);
-			std::ostringstream ostr;
-			ostr << _("Screen") << " " << i;
-			bool on = (screen == disp->get_default_screen());
-				
-			this->select_display.add_image_row( video_display_icon, ostr.str(), screen->make_display_name(), on );
-
-            map_displays[screen->make_display_name()] = ostr.str();
-		}
-
-		return;
-	}
-
-#ifdef USE_XINERAMA
-	// xinerama
-	int event_base, error_base;
-	int xinerama = XineramaQueryExtension(GDK_DISPLAY_XDISPLAY(disp->gobj()), &event_base, &error_base);
-	if (xinerama) {
-		xinerama = XineramaIsActive(GDK_DISPLAY_XDISPLAY(disp->gobj()));
-		if (xinerama) {
-			xinerama_info = XineramaQueryScreens(GDK_DISPLAY_XDISPLAY(disp->gobj()), &xinerama_num_screens);
-
-			if (xinerama_num_screens > 1) {
-				this->is_multihead = true;
-				this->is_xinerama = true;
-
-				// add the big one
-				this->select_display.add_image_row(video_display_icon, _("Full Screen"), "xin_-1", true);
-
-                map_displays["xin_-1"] = _("Full Screen");
-
-				for (int i=0; i<xinerama_num_screens; i++) {
-					std::ostringstream ostr, valstr;
-					ostr << _("Screen") << " " << xinerama_info[i].screen_number+1;
-					valstr << "xin_" << xinerama_info[i].screen_number;
-							
-					this->select_display.add_image_row(video_display_icon, ostr.str(), valstr.str(), false);
-
-                    map_displays[valstr.str()] = ostr.str();
-				}
-							
-							return;
-			}
-		}
-	}
-#endif
-
-	// if we made it here, we do not have any kind of multihead
-	// we still need to insert an entry to the display selector or we will die harshly
-	
-	this->select_display.add_image_row( video_display_icon, _("Default"), disp->get_default_screen()->make_display_name(), true);
+    for (std::map<Glib::ustring, Glib::ustring>::const_iterator i = map_displays.begin(); i != map_displays.end(); i++) {
+        this->select_display.add_image_row( video_display_icon, (*i).second, (*i).first, false);
+    }
 
 	return;
 }
 
 /**
- * Sets the file selection, mode combo box, and color button to appropriate default values, based on 
- * what is in the configuration file.  
+ * Sets the file selection, mode combo box, and color button to appropriate default values, based on
+ * what is in the configuration file.
  */
 void NWindow::set_default_selections()
 {
-	// grab the current config (if there is one)
-	Config *cfg = Config::get_instance();
-	std::vector<Glib::ustring> cfg_displays;
-	if( cfg->get_bg_groups(cfg_displays) ) 
-    {	
+    // grab the current config (if there is one)
+    Config *cfg = Config::get_instance();
+    std::vector<Glib::ustring> cfg_displays;
+    if(cfg->get_bg_groups(cfg_displays))
+    {
         SetBG::SetMode m;
         Gdk::Color c;
-		Glib::ustring default_selection;
+        Glib::ustring default_selection;
         Glib::ustring file;
 
-		// get default display
-        if (this->is_xinerama)
-        {
-            // we want the lowest numbered xinerama display (slightly hacky)
-            int max = 99;
-            for (std::vector<Glib::ustring>::iterator i = cfg_displays.begin(); i != cfg_displays.end(); i++)
+        if (find(cfg_displays.begin(), cfg_displays.end(), this->bg_setter->get_fullscreen_key()) != cfg_displays.end())
+            default_selection = this->bg_setter->get_fullscreen_key();
+        else {
+            // iterate the displays we know until we find the first one set
+            std::map<Glib::ustring, Glib::ustring> known_disps = this->bg_setter->get_active_displays();
+            for (std::map<Glib::ustring, Glib::ustring>::const_iterator i = known_disps.begin(); i != known_disps.end(); i++)
             {
-                if ((*i).substr(0, 4) != "xin_")
-                    continue;
-
-                std::stringstream stream((*i).substr(4));
-                int newmax;
-                stream >> newmax;
-                if (newmax < max)
-                    max = newmax;
+                if (find(cfg_displays.begin(), cfg_displays.end(), (*i).first) != cfg_displays.end())
+                {
+                    default_selection = (*i).first;
+                    break;
+                }
             }
-
-            std::ostringstream ostr;
-            ostr << "xin_" << max;
-            default_selection = ostr.str();
         }
-        else
-            default_selection = Gdk::DisplayManager::get()->get_default_display()->get_default_screen()->make_display_name();
 
         // make sure whatever we came up with is in the config file, if not, just return
         if (find(cfg_displays.begin(), cfg_displays.end(), default_selection) == cfg_displays.end())
             return;
 
-		if (!cfg->get_bg(default_selection, file, m, c)) {
-			// failed. return?
-			return;
-		}
+        if (!cfg->get_bg(default_selection, file, m, c)) {
+            // failed. return?
+            return;
+        }
 
-		// set em!
-		button_bgcolor.set_color(c);
-		select_mode.select_value( SetBG::mode_to_string(m) );
-		
-		// iterate through filename list
-		for (Gtk::TreeIter iter = view.store->children().begin(); iter != view.store->children().end(); iter++)
-		{
-			if ( (*iter)[view.record.CurBGOnDisp] == default_selection) {
+        // set em!
+        button_bgcolor.set_color(c);
+        select_mode.select_value( SetBG::mode_to_string(m) );
+
+        // iterate through filename list
+        for (Gtk::TreeIter iter = view.store->children().begin(); iter != view.store->children().end(); iter++)
+        {
+            if ( (*iter)[view.record.CurBGOnDisp] == default_selection) {
                 Glib::signal_timeout().connect(sigc::bind(sigc::mem_fun(view, &Thumbview::select), new Gtk::TreeIter(iter)), 100);
-				break;
-			}
-		}
-	}
+                break;
+            }
+        }
+    }
+}
 
+/**
+ * Sets the display combobox to the given display value.
+ *
+ * There will always be a selected item as long as there are items after calling this.
+ * 
+ * @param   display     The display index to use. If not found, use first available.
+ */
+void NWindow::set_default_display(int display)
+{
+    if (!select_display.select_value(this->bg_setter->make_display_key(display)))
+        select_display.set_active(0);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -417,6 +457,9 @@ void NWindow::sighandle_btn_prefs()
     {
         // figure out what directories to reload and what directories to not reload!
         // do this before we reload the main config!
+        //
+        // if the recurse flag changed, we need to unload/reload everything
+        bool recurse_changed = cfg->get_recurse() != clone->get_recurse();
 
         VecStrs vec_load;
         VecStrs vec_unload;
@@ -424,22 +467,25 @@ void NWindow::sighandle_btn_prefs()
         VecStrs vec_cfg_dirs = cfg->get_dirs();
         VecStrs vec_clone_dirs = clone->get_dirs();
         for (VecStrs::iterator i = vec_cfg_dirs.begin(); i != vec_cfg_dirs.end(); i++)
-            if (find(vec_clone_dirs.begin(), vec_clone_dirs.end(), *i) == vec_clone_dirs.end())
+            if (recurse_changed || find(vec_clone_dirs.begin(), vec_clone_dirs.end(), *i) == vec_clone_dirs.end())
                 vec_unload.push_back(*i);
 
         for (VecStrs::iterator i = vec_clone_dirs.begin(); i != vec_clone_dirs.end(); i++)
-            if (find(vec_cfg_dirs.begin(), vec_cfg_dirs.end(), *i) == vec_cfg_dirs.end())
+            if (recurse_changed || find(vec_cfg_dirs.begin(), vec_cfg_dirs.end(), *i) == vec_cfg_dirs.end())
                 vec_load.push_back(*i);
 
         cfg->load_cfg();        // tells the global instance to reload itself from disk, which the prefs dialog
                                 // told our clone to save to
         view.set_current_display_mode(cfg->get_display_mode());
+        view.set_icon_captions(cfg->get_icon_captions());
 
         for (VecStrs::iterator i = vec_unload.begin(); i != vec_unload.end(); i++)
             view.unload_dir(*i);
 
         for (VecStrs::iterator i = vec_load.begin(); i != vec_load.end(); i++)
             view.load_dir(*i);
+
+        view.set_sort_mode(cfg->get_sort_mode());
     }
 
 }

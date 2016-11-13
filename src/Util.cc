@@ -1,6 +1,6 @@
 /*
 
-This file is from Nitrogen, an X11 background setter.  
+This file is from Nitrogen, an X11 background setter.
 Copyright (C) 2006  Dave Foster & Javeed Shaikh
 
 This program is free software; you can redistribute it and/or
@@ -34,7 +34,7 @@ namespace Util {
 // http://primates.ximian.com/~federico/news-2006-03.html#09
 //
 // this functiona always does something.  If the enable-debug flag is
-// on when configured, this prints out to stdout.  if not, it tries to 
+// on when configured, this prints out to stdout.  if not, it tries to
 // access() a string which is useful for the link above.
 void program_log (const char *format, ...)
 {
@@ -52,9 +52,9 @@ void program_log (const char *format, ...)
     g_printf("%s\n", str);
 #else
 	access (str, F_OK);
-#endif    
+#endif
     g_free (str);
-} 
+}
 
 // Converts a relative path to an absolute path.
 // Probably works best if the path doesn't start with a '/' :)
@@ -69,10 +69,10 @@ Glib::ustring path_to_abs_path(Glib::ustring path) {
 		path.erase(0, 3);
 		parents++;
 	}
-	
+
 	// now erase that many directories from the path to the current
 	// directory.
-	
+
 	while( parents ) {
 		if ( (pos = cwd.rfind ('/')) != Glib::ustring::npos) {
 			// remove this directory from the path
@@ -80,101 +80,8 @@ Glib::ustring path_to_abs_path(Glib::ustring path) {
 		}
 		parents--;
 	}
-	
+
 	return cwd + '/' + path;
-}
-
-//
-// TODO: i turned this kind of into a shitshow with the xinerama, must redo a bit
-//
-void restore_saved_bgs() {
-
-	program_log("entering set_saved_bgs()");
-	
-	Glib::ustring file, display;
-	SetBG::SetMode mode;
-	Gdk::Color bgcolor;
-	
-	std::vector<Glib::ustring> displist;
-	std::vector<Glib::ustring>::const_iterator i;
-	Config *cfg = Config::get_instance();
-
-	if ( cfg->get_bg_groups(displist) == false ) {
-		std::cerr << _("Could not get bg groups from config file.") << std::endl;
-		return;
-	}
-
-	// determine what mode we are going into
-	Glib::RefPtr<Gdk::DisplayManager> manager = Gdk::DisplayManager::get();
-	Glib::RefPtr<Gdk::Display> disp	= manager->get_default_display();
-	
-#ifdef USE_XINERAMA
-	XineramaScreenInfo* xinerama_info;
-	gint xinerama_num_screens;
-
-	int event_base, error_base;
-	int xinerama = XineramaQueryExtension(GDK_DISPLAY_XDISPLAY(disp->gobj()), &event_base, &error_base);
-	if (xinerama && XineramaIsActive(GDK_DISPLAY_XDISPLAY(disp->gobj()))) {
-		xinerama_info = XineramaQueryScreens(GDK_DISPLAY_XDISPLAY(disp->gobj()), &xinerama_num_screens);
-
-		// dirty, dirty hack to make sure we're not on some crazy 1 monitor display
-		if (xinerama_num_screens > 1) {
-			program_log("using xinerama");
-
-			bool foundfull = false;
-			for (i=displist.begin(); i!=displist.end(); i++)
-				if ((*i) == Glib::ustring("xin_-1"))
-					foundfull = true;
-
-			if (foundfull) {
-				if (cfg->get_bg(Glib::ustring("xin_-1"), file, mode, bgcolor)) {
-					program_log("setting full xinerama screen to %s", file.c_str());
-					SetBG::set_bg_xinerama(xinerama_info, xinerama_num_screens, Glib::ustring("xin_-1"), file, mode, bgcolor); 
-					program_log("done setting full xinerama screen");
-				} else {
-					std::cerr << _("Could not get bg info for fullscreen xinerama") << std::endl;
-				}
-			} else {
-
-				// iterate through, pick out the xin_*
-				for (i=displist.begin(); i!=displist.end(); i++) {
-					if ((*i).find(Glib::ustring("xin_").c_str(), 0, 4) != Glib::ustring::npos) {
-						if (cfg->get_bg((*i), file, mode, bgcolor)) {
-							program_log("setting %s to %s", (*i).c_str(), file.c_str());
-							SetBG::set_bg_xinerama(xinerama_info, xinerama_num_screens, (*i), file, mode, bgcolor);
-							program_log("done setting %s", (*i).c_str());
-						} else {
-							std::cerr << _("Could not get bg info for") << " " << (*i) << std::endl;
-						}
-					}
-				}
-			}
-		
-			// must return here becuase not all systems have xinerama
-			program_log("leaving set_saved_bgs()");	
-			return;
-		}
-	} 
-#endif
-
-	for (int n=0; n<disp->get_n_screens(); n++) {
-				
-		display = disp->get_screen(n)->make_display_name();
-
-		program_log("display: %s", display.c_str());
-			
-		if (cfg->get_bg(display, file, mode, bgcolor)) {
-					
-			program_log("setting bg on %s to %s (mode: %d)", display.c_str(), file.c_str(), mode);
-			SetBG::set_bg(display, file, mode, bgcolor);
-			program_log("set bg on %s to %s (mode: %d)", display.c_str(), file.c_str(), mode);
-				
-		} else {
-			std::cerr << _("Could not get bg info") << std::endl;
-		}
-	}
-
-	program_log("leaving set_saved_bgs()");	
 }
 
 /**
@@ -184,34 +91,37 @@ void restore_saved_bgs() {
  */
 ArgParser* create_arg_parser() {
 
-	ArgParser* parser = new ArgParser();
-	parser->register_option("restore", _("Restore saved backgrounds"));
-	parser->register_option("no-recurse", _("Do not recurse into subdirectories"));
-	parser->register_option("sort", _("How to sort the backgrounds. Valid options are:\n\t\t\t* alpha, for alphanumeric sort\n\t\t\t* ralpha, for reverse alphanumeric sort\n\t\t\t* time, for last modified time sort (oldest first)\n\t\t\t* rtime, for reverse last modified time sort (newest first)"), true);
-	parser->register_option("set-color", _("background color in hex, #000000 by default"), true);
+    ArgParser* parser = new ArgParser();
+    parser->register_option("restore", _("Restore saved backgrounds"));
+    parser->register_option("no-recurse", _("Do not recurse into subdirectories"));
+    parser->register_option("sort", _("How to sort the backgrounds. Valid options are:\n\t\t\t* alpha, for alphanumeric sort\n\t\t\t* ralpha, for reverse alphanumeric sort\n\t\t\t* time, for last modified time sort (oldest first)\n\t\t\t* rtime, for reverse last modified time sort (newest first)"), true);
+    parser->register_option("set-color", _("background color in hex, #000000 by default"), true);
+    parser->register_option("head", _("Select xinerama/multihead display in GUI, 0..n, -1 for full"), true);
+    parser->register_option("force-setter", _("Force setter engine: xwindows, xinerama, gnome, pcmanfm"), true);
+    parser->register_option("random", _("Choose random background from config or given directory"));
 
-	// command line set modes
-	Glib::ustring openp(" (");
-	Glib::ustring closep(")");
-	parser->register_option("set-scaled", _("Sets the background to the given file") + openp + _("scaled") + closep);
-	parser->register_option("set-tiled", _("Sets the background to the given file") + openp + _("tiled") + closep);
-	parser->register_option("set-auto", _("Sets the background to the given file") + openp + _("auto") + closep);
-	parser->register_option("set-centered", _("Sets the background to the given file") + openp + _("centered") + closep);
-	parser->register_option("set-zoom", _("Sets the background to the given file") + openp + _("zoom") + closep);
+    // command line set modes
+    Glib::ustring openp(" (");
+    Glib::ustring closep(")");
+    parser->register_option("set-scaled", _("Sets the background to the given file") + openp + _("scaled") + closep);
+    parser->register_option("set-tiled", _("Sets the background to the given file") + openp + _("tiled") + closep);
+    parser->register_option("set-auto", _("Sets the background to the given file") + openp + _("auto") + closep);
+    parser->register_option("set-centered", _("Sets the background to the given file") + openp + _("centered") + closep);
+    parser->register_option("set-zoom", _("Sets the background to the given file") + openp + _("zoom") + closep);
     parser->register_option("set-zoom-fill", _("Sets the background to the given file") + openp + _("zoom-fill") + closep);
     parser->register_option("save", _("Saves the background permanently"));
 
-	std::vector<std::string> vecsetopts;
-	vecsetopts.push_back("set-scaled");
-	vecsetopts.push_back("set-tiled");
-	vecsetopts.push_back("set-auto");
-	vecsetopts.push_back("set-centered");
-	vecsetopts.push_back("set-zoom");
+    std::vector<std::string> vecsetopts;
+    vecsetopts.push_back("set-scaled");
+    vecsetopts.push_back("set-tiled");
+    vecsetopts.push_back("set-auto");
+    vecsetopts.push_back("set-centered");
+    vecsetopts.push_back("set-zoom");
     vecsetopts.push_back("set-zoom-fill");
 
-	parser->make_exclusive(vecsetopts);
+    parser->make_exclusive(vecsetopts);
 
-	return parser;
+    return parser;
 }
 
 /**
@@ -225,13 +135,127 @@ std::string fix_start_dir(std::string startdir) {
 	if ( startdir[startdir.length()-1] == '/' ) {
 		startdir.resize(startdir.length()-1);
 	}
-	
+
 	// if this is not an absolute path, make it one.
 	if ( !Glib::path_is_absolute(startdir) ) {
 		startdir = Util::path_to_abs_path(startdir);
 	}
 
 	return startdir;
+}
+
+/**
+ * Picks a random file from the given path.
+ */
+std::string pick_random_file(std::string path, bool recurse)
+{
+    std::pair<VecStrs, VecStrs> lists = get_image_files(path, recurse);
+    Glib::Rand rando;
+
+    if (lists.first.size() == 0) {
+        return "";
+    }
+
+    int idx = rando.get_int_range(0, lists.first.size());
+    return lists.first[idx];
+}
+
+/**
+ * Picks a given file from the given paths.
+ */
+std::string pick_random_file(VecStrs paths, bool recurse)
+{
+    VecStrs all_files;
+    Glib::Rand rando;
+
+    for (VecStrs::const_iterator i = paths.begin(); i != paths.end(); i++) {
+        std::pair<VecStrs, VecStrs> lists = get_image_files(*i, recurse);
+
+        all_files.insert(all_files.end(), lists.first.begin(), lists.first.end());
+    }
+
+    if (all_files.size() == 0) {
+        return "";
+    }
+
+    int idx = rando.get_int_range(0, all_files.size());
+    return all_files[idx];
+}
+
+/**
+ * Returns a pair of image files, directories discovered from searching the given path.
+ *
+ * If recurse is not true, the second part of the pair will always be length 1 and match
+ * the passed in path.
+ */
+std::pair<VecStrs, VecStrs> get_image_files(std::string path, bool recurse)
+{
+	std::queue<std::string> queue_dirs;
+	Glib::Dir *dirhandle;
+    VecStrs dir_list;       // full list of the dirs we've seen so we don't get dups
+    VecStrs file_list;
+
+    queue_dirs.push(path);
+
+    while (!queue_dirs.empty()) {
+        std::string curdir = queue_dirs.front();
+        queue_dirs.pop();
+
+        try {
+            dirhandle = new Glib::Dir(curdir);
+		} catch (Glib::FileError e) {
+			std::cerr << _("Could not open dir") << " " << curdir << ": " << e.what() << "\n";
+			continue;
+		}
+
+		for (Glib::Dir::iterator i = dirhandle->begin(); i != dirhandle->end(); i++) {
+			Glib::ustring fullstr = Glib::build_filename(curdir, *i);
+
+			if (Glib::file_test(fullstr, Glib::FILE_TEST_IS_DIR))
+			{
+				if (recurse)
+                {
+                    if (std::find(dir_list.begin(), dir_list.end(), fullstr) == dir_list.end())
+                    {
+                        dir_list.push_back(fullstr);
+                        queue_dirs.push(fullstr);
+                    }
+                }
+			}
+			else {
+				if (is_image(fullstr) ) {
+                    file_list.push_back(fullstr);
+				}
+			}
+		}
+
+		delete dirhandle;
+	}
+
+    return std::pair<VecStrs, VecStrs>(file_list, dir_list);
+}
+
+/**
+ * Tests the file to see if it is an image
+ * TODO: come up with less sux way of doing it than extension
+ *
+ * @param	file	The filename to test
+ * @return			If its an image or not
+ */
+bool is_image(std::string file) {
+	if (file.find(".png")  != std::string::npos ||
+		file.find(".PNG")  != std::string::npos ||
+		file.find(".jpg")  != std::string::npos ||
+		file.find(".JPG")  != std::string::npos ||
+		file.find(".jpeg") != std::string::npos ||
+		file.find(".JPEG") != std::string::npos ||
+		file.find(".gif")  != std::string::npos ||
+		file.find(".GIF")  != std::string::npos ||
+		file.find(".svg")  != std::string::npos ||
+        	file.find(".SVG")  != std::string::npos)
+		return true;
+
+	return false;
 }
 
 /**
@@ -244,13 +268,6 @@ bool is_display_relevant(Gtk::Window* window, Glib::ustring display)
 {
     // cast window to an NWindow.  we have to do this to avoid a circular dep
     NWindow *nwindow = dynamic_cast<NWindow*>(window);
-    if (!nwindow->is_multihead)
-    {
-        Glib::ustring curdisp = Gdk::DisplayManager::get()->get_default_display()->get_default_screen()->make_display_name();
-        return (curdisp == display);
-    }
-
-    // window IS multihead, check to see if this display is in the map
     return (nwindow->map_displays.find(display) != nwindow->map_displays.end());
 }
 
@@ -266,7 +283,7 @@ Glib::ustring make_current_set_string(Gtk::Window* window, Glib::ustring filenam
 {
     // cast window to an NWindow.  we have to do this to avoid a circular dep
     NWindow *nwindow = dynamic_cast<NWindow*>(window);
-    
+
     Glib::ustring shortfile(filename, filename.rfind("/")+1);
     if (!is_display_relevant(window, display))
         return shortfile;
@@ -274,12 +291,32 @@ Glib::ustring make_current_set_string(Gtk::Window* window, Glib::ustring filenam
     std::ostringstream ostr;
     ostr << shortfile << "\n\n" << "<i>" << _("Currently set background");
 
-    if (nwindow->is_multihead)
+    if (nwindow->map_displays.size() > 1)
         ostr << " " << _("for") << " " << nwindow->map_displays[display];
-   
+
     ostr << "</i>";
 
     return ostr.str();
+}
+
+/**
+ * Converts a Gdk::Color to a string representation with a #.
+ *
+ * @param	color	The color to convert
+ * @return			A hex string
+ */
+Glib::ustring color_to_string(Gdk::Color color) {
+	guchar red = guchar(color.get_red_p() * 255);
+	guchar green = guchar(color.get_green_p() * 255);
+	guchar blue = guchar(color.get_blue_p() * 255);
+
+	char * c_str = new char[7];
+
+	snprintf(c_str, 7, "%.2x%.2x%.2x", red, green, blue);
+	Glib::ustring string = '#' + Glib::ustring(c_str);
+
+	delete[] c_str;
+	return string;
 }
 
 }

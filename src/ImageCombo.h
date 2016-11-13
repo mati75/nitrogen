@@ -1,6 +1,6 @@
 /*
 
-This file is from Nitrogen, an X11 background setter.  
+This file is from Nitrogen, an X11 background setter.
 Copyright (C) 2006  Dave Foster & Javeed Shaikh
 
 This program is free software; you can redistribute it and/or
@@ -30,21 +30,21 @@ class ImageCombo : public Gtk::ComboBox {
 		void add_image_row(Glib::RefPtr<Gdk::Pixbuf> img, Glib::ustring desc, Glib::ustring data, bool active);
 		Glib::ustring get_active_data();
 
-		void select_value(Glib::ustring);
+		bool select_value(Glib::ustring);
 
 	protected:
 
 		Gtk::TreeModelColumn<Glib::ustring> tmc_data;
 		Gtk::TreeModelColumn< Glib::RefPtr<Gdk::Pixbuf> >  tmc_image;
 		Gtk::TreeModelColumn<Glib::ustring> tmc_desc;
-		
+
 		Gtk::TreeModel::ColumnRecord colrecord;
-		
+
 		Gtk::TreeViewColumn tvc_col_img;
 		Gtk::TreeViewColumn tvc_col_desc;
 
 		Glib::RefPtr<Gtk::ListStore> store;
-		
+
 		Gtk::CellRendererPixbuf rend_img;
 		Gtk::CellRendererText rend_text;
 };
