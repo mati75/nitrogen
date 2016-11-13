@@ -1,18 +1,19 @@
-Adressing Debian bug #713669. Was previously used already to address an FTBFS
-when building with binutils-gold
-Index: nitrogen-1.5.1/configure.ac
-===================================================================
---- nitrogen-1.5.1.orig/configure.ac	2010-02-05 03:43:02.000000000 +0900
-+++ nitrogen-1.5.1/configure.ac	2012-01-08 09:21:22.438938514 +0900
-@@ -34,9 +34,9 @@
- PKG_CHECK_MODULES(GTK2,[gtk+-2.0 >= $GTK2_VERSION])
- PKG_CHECK_MODULES(GTKMM2, [gtkmm-2.4 >= $GTKMM2_VERSION])
- PKG_CHECK_MODULES(GTHREAD2, [gthread-2.0 >= $GTHREAD2_VERSION])
+Description: Fix FTBFS when building with binutils-gold
+
+Author: Nico Golde <nion@debian.org>
+Bug-Debian: https://bugs.debian.org/713669
+
+
+--- a/configure.ac
++++ b/configure.ac
+@@ -32,8 +32,9 @@ PKG_CHECK_MODULES([GLIB2], [glib-2.0 >=
+ PKG_CHECK_MODULES([GTK2], [gtk+-2.0 >= $GTK2_VERSION])
+ PKG_CHECK_MODULES([GTKMM2], [gtkmm-2.4 >= $GTKMM2_VERSION])
+ PKG_CHECK_MODULES([GTHREAD2], [gthread-2.0 >= $GTHREAD2_VERSION])
 +PKG_CHECK_MODULES(X11, x11)
  
--
 -NITROGEN_LIBS="$GLIB2_LIBS $GTK2_LIBS $GTKMM2_LIBS $GTHREAD2_LIBS"
 +NITROGEN_LIBS="$GLIB2_LIBS $GTK2_LIBS $GTKMM2_LIBS $GTHREAD2_LIBS $X11_LIBS"
  NITROGEN_CFLAGS="$GLIB2_CFLAGS $GTK2_CFLAGS $GTKMM2_CFLAGS $GTHREAD2_CFLAGS"
  
- dnl do some autotools picen to get inotify
+ dnl apparantly we have to check for X11 now

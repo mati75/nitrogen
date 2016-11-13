@@ -2,6 +2,9 @@ nitrogen (1.6.0-1) UNRELEASED; urgency=medium
 
   * Adopt package. (Closes: #842558)
   * New upstream release. (Closes: #687204 #796980)
+  * debian/patches:
+    - Drop add_desktop_file.patch.
+    - Rewrite fix_FTBFS_binutils-gold.patch.
 
  -- Mateusz Łukasik <mati75@linuxmint.pl>  Sun, 13 Nov 2016 21:31:06 +0100
 
