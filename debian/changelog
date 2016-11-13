@@ -1,5 +1,6 @@
 nitrogen (1.6.0-1) UNRELEASED; urgency=medium
 
+  * Adopt package. (Closes: #842558)
   * New upstream release. (Closes: #687204 #796980)
 
  -- Mateusz Łukasik <mati75@linuxmint.pl>  Sun, 13 Nov 2016 21:31:06 +0100

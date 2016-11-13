@@ -1,7 +1,7 @@
 Source: nitrogen
 Section: x11
 Priority: extra
-Maintainer: Nico Golde <nion@debian.org>
+Maintainer: Mateusz Łukasik <mati75@linuxmint.pl>
 Build-Depends: debhelper (>= 7), autotools-dev, libgtkmm-2.4-dev, libxinerama-dev, autoconf, autopoint, automake, dpkg-dev (>= 1.16.1~)
 Standards-Version: 3.9.4
 Homepage: http://projects.l3ib.org/nitrogen/
