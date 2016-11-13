@@ -1,6 +1,6 @@
 /*
 
-This file is from Nitrogen, an X11 background setter.  
+This file is from Nitrogen, an X11 background setter.
 Copyright (C) 2006  Dave Foster & Javeed Shaikh
 
 This program is free software; you can redistribute it and/or
@@ -30,6 +30,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "Util.h"
 #include "gcs-i18n.h"
 #include "string.h"
+
+using namespace Util;
 
 typedef std::pair<Glib::ustring, Glib::ustring> PairStrs;
 
@@ -76,7 +78,7 @@ void DelayLoadingStore::get_value_vfunc (const iterator& iter, int column, Glib:
 
 			row[thumbview->record.LoadingThumb] = true;
 
-			Util::program_log("Custom model: planning on loading %s\n", tp->file.c_str());
+			//Util::program_log("Custom model: planning on loading %s\n", tp->file.c_str());
 
 			g_async_queue_push(aqueue_loadthumbs, (gpointer)tp);
 		}
@@ -90,7 +92,7 @@ void DelayLoadingStore::get_value_vfunc (const iterator& iter, int column, Glib:
 Thumbview::Thumbview()
 {
 	set_policy (Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
-	set_shadow_type (Gtk::SHADOW_IN); 
+	set_shadow_type (Gtk::SHADOW_IN);
 
     // load map of setbgs (need this for add_file)
     load_map_setbgs();
@@ -98,13 +100,13 @@ Thumbview::Thumbview()
 	// make our async queues
 	this->aqueue_loadthumbs = g_async_queue_new();
 	this->aqueue_createthumbs = g_async_queue_new();
-	this->aqueue_donethumbs = g_async_queue_new();	
+	this->aqueue_donethumbs = g_async_queue_new();
 
 	// create store
 	store = DelayLoadingStore::create (record);
 	store->set_queue(aqueue_loadthumbs);
 	store->set_thumbview(this);
-	
+
 	// setup view
     m_curmode = LIST;
     iview.set_model(store);
@@ -115,18 +117,18 @@ Thumbview::Thumbview()
 	view.set_fixed_height_mode (TRUE);
 	view.set_rules_hint (TRUE);
     view.signal_row_activated().connect(sigc::mem_fun(*this, &Thumbview::sighandle_view_activated));
-	
+
 	// set cell renderer proprties
 	rend.property_ellipsize () = Pango::ELLIPSIZE_END;
 	rend.set_property ("ellipsize", Pango::ELLIPSIZE_END);
 	rend.property_weight () = Pango::WEIGHT_BOLD;
 
-	rend_img.set_fixed_size(105, 82);    
-	
+	rend_img.set_fixed_size(105, 82);
+
 	// make treeviewcolumns
 	this->col_thumb = new Gtk::TreeViewColumn("thumbnail", this->rend_img);
 	this->col_desc = new Gtk::TreeViewColumn("description", this->rend);
-	
+
 	col_thumb->add_attribute (rend_img, "pixbuf", record.Thumbnail);
 	col_thumb->set_sizing(Gtk::TREE_VIEW_COLUMN_FIXED);
 	col_thumb->set_fixed_width(105);
@@ -135,10 +137,10 @@ Thumbview::Thumbview()
 	col_desc->set_sort_indicator (true);
 	col_desc->set_sort_order (Gtk::SORT_ASCENDING);
 	col_desc->set_sizing(Gtk::TREE_VIEW_COLUMN_FIXED);
-	
+
 	view.append_column (*col_thumb);
 	view.append_column (*col_desc);
-    
+
     iview.set_pixbuf_column(record.Thumbnail);
     if (m_icon_captions)
         iview.set_markup_column(record.Description);
@@ -157,8 +159,8 @@ Thumbview::Thumbview()
 	} catch (Gtk::IconThemeError e) { std::cerr << "ERR: Could not load \"image-loading\" from icon theme, this indicates a problem with your Gtk/Gtkmm install.\n"; }
       catch (Gdk::PixbufError e) { std::cerr << "ERR: Could not load \"image-loading\" from icon theme, this indicates a problem with your Gtk/Gtkmm install.\n"; }
 
-	// init dispatcher 
-	this->dispatch_thumb.connect(sigc::mem_fun(this, &Thumbview::handle_dispatch_thumb)); 
+	// init dispatcher
+	this->dispatch_thumb.connect(sigc::mem_fun(this, &Thumbview::handle_dispatch_thumb));
 
 	col_desc->set_expand ();
 
@@ -187,7 +189,7 @@ void Thumbview::add_file(std::string filename, std::string rootdir)
     Gtk::Window *window = dynamic_cast<Gtk::Window*>(get_toplevel());
 	Gtk::TreeModel::iterator iter = this->store->append ();
 	Gtk::TreeModel::Row row = *iter;
-	Glib::RefPtr<Gdk::Pixbuf> thumb = this->loading_image; 
+	Glib::RefPtr<Gdk::Pixbuf> thumb = this->loading_image;
 	row[record.Thumbnail] = thumb;
 	row[record.Filename] = filename;
 
@@ -208,7 +210,7 @@ void Thumbview::add_file(std::string filename, std::string rootdir)
 	// for modified time
 	row[record.Time] = get_file_mtime(filename);
 
-	Util::program_log("add_file(): Adding file %s (from %s)\n", filename.c_str(), rootdir.c_str());
+	//Util::program_log("add_file(): Adding file %s (from %s)\n", filename.c_str(), rootdir.c_str());
 
 	// push it on the thumb queue
 //	TreePair *tp = new TreePair();
@@ -230,95 +232,47 @@ void Thumbview::load_dir(std::string dir)
  */
 void Thumbview::load_dir(const VecStrs& dirs)
 {
-	std::queue<PairStrs> queue_dirs;
-	Glib::Dir *dirhandle;	
-    VecStrs dir_list;       // full list of the dirs we've seen so we don't get dups
-
     for (VecStrs::const_iterator i = dirs.begin(); i != dirs.end(); i++)
     {
-        if (std::find(dir_list.begin(), dir_list.end(), *i) == dir_list.end())
-        {
-            dir_list.push_back(*i);
-            queue_dirs.push(PairStrs(*i, *i));
-            m_list_loaded_rootdirs.push_back(*i);
-        }
-    }
-	
-	// loop it
-	while ( ! queue_dirs.empty() ) {
+        m_list_loaded_rootdirs.push_back(*i);
 
-		// pop first
-        PairStrs curpair = queue_dirs.front();
+        std::pair<VecStrs, VecStrs> lists = Util::get_image_files(*i, Config::get_instance()->get_recurse());
 
-		Glib::ustring curdir = curpair.first;
-        Glib::ustring rootdir = curpair.second;
-		queue_dirs.pop();
-		
-		try {
-			dirhandle = new Glib::Dir(curdir);
-			Util::program_log("load_dir(): Opening dir %s\n", curdir.c_str());
+        VecStrs file_list = lists.first;
+        VecStrs dir_list = lists.second;
 
-		} catch (Glib::FileError e) {
-			std::cerr << _("Could not open dir") << " " << curdir << ": " << e.what() << "\n";
-			continue;
-		}
+        for (VecStrs::const_iterator fi = file_list.begin(); fi != file_list.end(); fi++)
+            add_file(*fi, *i);  // file, root dir
 
 #ifdef USE_INOTIFY
+        for (VecStrs::const_iterator di = dir_list.begin(); di != dir_list.end(); di++) {
+            std::string curdir = *di;
 
-		// check if we're already monitoring this dir.
-		if (watches.find(curdir) == watches.end()) {
-			// this dir was successfully opened. monitor it for changes with inotify.
-			// the Watch will be cleaned up automatically if the dir is deleted.
-			Inotify::Watch * watch = Inotify::Watch::create(curdir);
-			if (watch) {
-				// no error occurred.
+            // check if we're already monitoring this dir.
+            if (watches.find(curdir) == watches.end()) {
+                // this dir was successfully opened. monitor it for changes with inotify.
+                // the Watch will be cleaned up automatically if the dir is deleted.
+                Inotify::Watch * watch = Inotify::Watch::create(curdir);
+                if (watch) {
+                    // no error occurred.
 
-				// emitted when a file is deleted in this dir.
-				watch->signal_deleted.connect(sigc::mem_fun(this, &Thumbview::file_deleted_callback));
-				// emitted when a file is modified or created in this dir.
-				watch->signal_write_closed.connect(sigc::mem_fun(this, &Thumbview::file_changed_callback));
-				// two signals that are emitted when a file is renamed in this dir.
-				// the best way to handle this IMO is to remove the file upon receiving
-				// 'moved_from', and then to add the file upon receiving 'moved_to'.
-				watch->signal_moved_from.connect(sigc::mem_fun(this, &Thumbview::file_deleted_callback));
-				watch->signal_moved_to.connect(sigc::mem_fun(this, &Thumbview::file_changed_callback));
-				watch->signal_created.connect(sigc::mem_fun(this, &Thumbview::file_created_callback));
+                    // emitted when a file is deleted in this dir.
+                    watch->signal_deleted.connect(sigc::mem_fun(this, &Thumbview::file_deleted_callback));
+                    // emitted when a file is modified or created in this dir.
+                    watch->signal_write_closed.connect(sigc::mem_fun(this, &Thumbview::file_changed_callback));
+                    // two signals that are emitted when a file is renamed in this dir.
+                    // the best way to handle this IMO is to remove the file upon receiving
+                    // 'moved_from', and then to add the file upon receiving 'moved_to'.
+                    watch->signal_moved_from.connect(sigc::mem_fun(this, &Thumbview::file_deleted_callback));
+                    watch->signal_moved_to.connect(sigc::mem_fun(this, &Thumbview::file_changed_callback));
+                    watch->signal_created.connect(sigc::mem_fun(this, &Thumbview::file_created_callback));
 
-				watches[curdir] = watch;
-			}
-		}
-
-#endif
-
-		for (Glib::Dir::iterator i = dirhandle->begin(); i != dirhandle->end(); i++) {
-			Glib::ustring fullstr = curdir + Glib::ustring("/");
-			try {
-				fullstr += /*Glib::filename_to_utf8(*/*i;//);
-			} catch (Glib::ConvertError& error) {
-				std::cerr << _("Invalid UTF-8 encountered. Skipping file") << " " << *i << std::endl;
-				continue;
-			}
-
-			if ( Glib::file_test(fullstr, Glib::FILE_TEST_IS_DIR) )
-			{
-				if ( Config::get_instance()->get_recurse() )
-                {
-                    if (std::find(dir_list.begin(), dir_list.end(), fullstr) == dir_list.end())
-                    {
-                        dir_list.push_back(fullstr);
-                        queue_dirs.push(PairStrs(fullstr, rootdir));
-                    }
+                    watches[curdir] = watch;
                 }
-			}
-			else {			
-				if ( this->is_image(fullstr) ) {
-                    add_file(fullstr, rootdir);
-				}
-			}
-		}
-
-		delete dirhandle;
-	}
+            }
+        }
+#endif
+    }
 }
 
 /**
@@ -375,35 +329,14 @@ bool Thumbview::select(const Gtk::TreeModel::iterator *iter)
 }
 
 /**
- * Tests the file to see if it is an image
- * TODO: come up with less sux way of doing it than extension
- *
- * @param	file	The filename to test
- * @return			If its an image or not
- */
-bool Thumbview::is_image(std::string file) {
-	if (file.find (".png")  != std::string::npos ||
-		file.find (".PNG")  != std::string::npos || 
-		file.find (".jpg")  != std::string::npos || 
-		file.find (".JPG")  != std::string::npos || 
-		file.find (".jpeg") != std::string::npos || 
-		file.find (".JPEG") != std::string::npos ||
-		file.find (".gif")  != std::string::npos ||
-		file.find (".GIF")  != std::string::npos ) 
-		return true;
-
-	return false;
-}
-
-/**
  * Determines the full path to a cache file.  Does all creation of dirs.
  * TODO: should throw exception if we cannot create the dirs!
  *
  * @param	file	The file to convert, calls cache_name on it
- * @return			The full path to 
+ * @return			The full path to
  */
 Glib::ustring Thumbview::cache_file(Glib::ustring file) {
-	
+
 	Glib::ustring urifile = Glib::filename_to_uri(file);
 
 	// compute md5 of file's uri
@@ -416,7 +349,7 @@ Glib::ustring Thumbview::cache_file(Glib::ustring file) {
 	char *buf = new char[3];
 	char *full = new char[33];
 	full[0] = '\0';
-	
+
 	for (int di = 0; di < 16; ++di) {
 		sprintf(buf, "%02x", digest[di]);
 		strcat(full, buf);
@@ -427,7 +360,7 @@ Glib::ustring Thumbview::cache_file(Glib::ustring file) {
 	delete [] full;
 
 	// build dir paths
-	Glib::ustring halfref = Glib::build_filename(Glib::get_home_dir(),".thumbnails/");
+	Glib::ustring halfref = Glib::build_filename(Glib::get_user_cache_dir(),"thumbnails/");
 	halfref = Glib::build_filename(halfref, "normal/");
 
 	if ( !Glib::file_test(halfref, Glib::FILE_TEST_EXISTS) )
@@ -440,12 +373,12 @@ Glib::ustring Thumbview::cache_file(Glib::ustring file) {
 }
 
 /**
- * Creates cache images that show up in its queue.  
+ * Creates cache images that show up in its queue.
  */
-void Thumbview::load_cache_images() 
+void Thumbview::load_cache_images()
 {
-	g_async_queue_ref(this->aqueue_loadthumbs); 
-	g_async_queue_ref(this->aqueue_donethumbs); 
+	g_async_queue_ref(this->aqueue_loadthumbs);
+	g_async_queue_ref(this->aqueue_donethumbs);
 
 	while(1)
 	{
@@ -468,7 +401,7 @@ void Thumbview::load_cache_images()
 				int pbwidth = pb->get_width();
 				int pbheight = pb->get_height();
 				float ratio = (float)pbwidth / (float)pbheight;
-				
+
 				int newwidth, newheight;
 
 				if (abs(100 - pbwidth) > abs(80 - pbheight))
@@ -506,9 +439,9 @@ void Thumbview::load_cache_images()
 			}
 		}
 	}
-	
-	g_async_queue_unref(this->aqueue_loadthumbs); 
-	g_async_queue_unref(this->aqueue_donethumbs); 
+
+	g_async_queue_unref(this->aqueue_loadthumbs);
+	g_async_queue_unref(this->aqueue_donethumbs);
 	throw Glib::Thread::Exit();
 }
 
@@ -519,10 +452,10 @@ void Thumbview::create_cache_images()
 {
 	Glib::RefPtr<Gdk::Pixbuf> thumb;
 
-	g_async_queue_ref(this->aqueue_createthumbs); 
-	g_async_queue_ref(this->aqueue_donethumbs); 
+	g_async_queue_ref(this->aqueue_createthumbs);
+	g_async_queue_ref(this->aqueue_donethumbs);
 
-	// always work! 
+	// always work!
 	while (1) {
 
 		// remove first item (blocks when no items occur)
@@ -557,7 +490,7 @@ void Thumbview::create_cache_images()
 		vals.push_back(Glib::ustring(bufout));
 
 		delete [] bufout;
-				
+
 		thumb->save(cachefile, "png", opts, vals);
 
         Util::program_log("create_cache_images(): - Finished caching file %s\n", file.c_str());
@@ -575,12 +508,12 @@ void Thumbview::create_cache_images()
 		delete p;
 	}
 
-	g_async_queue_unref(this->aqueue_createthumbs); 
-	g_async_queue_unref(this->aqueue_donethumbs); 
+	g_async_queue_unref(this->aqueue_createthumbs);
+	g_async_queue_unref(this->aqueue_donethumbs);
 	throw Glib::Thread::Exit();
 }
 
-void Thumbview::handle_dispatch_thumb() { 
+void Thumbview::handle_dispatch_thumb() {
 	g_async_queue_ref(this->aqueue_donethumbs);
 
 	TreePair *donep = (TreePair*)g_async_queue_pop(this->aqueue_donethumbs);
@@ -604,7 +537,7 @@ void Thumbview::update_thumbnail(Glib::ustring file, Gtk::TreeModel::iterator it
 	//row[record.Description] = Glib::ustring(file, file.rfind("/")+1);
 
 	// emit a changed signal
-	store->row_changed(store->get_path(iter), iter);	
+	store->row_changed(store->get_path(iter), iter);
 }
 
 /**
@@ -645,7 +578,7 @@ void Thumbview::set_sort_mode (Thumbview::SortMode mode) {
 void Thumbview::load_map_setbgs()
 {
     map_setbgs.clear();
-    
+
     std::vector<Glib::ustring> vecgroups;
     bool ret = Config::get_instance()->get_bg_groups(vecgroups);
     if (!ret)
@@ -669,12 +602,27 @@ void Thumbview::load_map_setbgs()
 }
 
 /**
+ * Sets the current selection with all triggers.
+ */
+void Thumbview::set_selected(const Gtk::TreePath& path, Gtk::TreeModel::const_iterator *iter)
+{
+    // visually select
+    this->select(new Gtk::TreeModel::const_iterator(*iter));
+
+    // now activate
+    if (m_curmode == ICON)
+        iview.item_activated(path);
+    else
+        view.row_activated(path, *this->col_thumb);
+}
+
+/**
  * Gets the currently selected image, regardless of which view it came from.
  */
 Gtk::TreeModel::iterator Thumbview::get_selected()
 {
     if (m_curmode == ICON)
-    {    
+    {
         std::list<Gtk::TreePath> selected = iview.get_selected_items();
         return store->get_iter(*(selected.begin()));
     }

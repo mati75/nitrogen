@@ -1,6 +1,6 @@
 /*
 
-This file is from Nitrogen, an X11 background setter.  
+This file is from Nitrogen, an X11 background setter.
 Copyright (C) 2006  Dave Foster & Javeed Shaikh
 
 This program is free software; you can redistribute it and/or
@@ -24,362 +24,55 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <X11/Xatom.h>
 #include "gcs-i18n.h"
 #include "Util.h"
+#include "Config.h"
+#include <algorithm>
+#include <functional>
+#include <sstream>
 
 using namespace Util;
 
 /**
- * Sets the background to the image in the file specified.
- *
- * @param	disp	The display to set it on.  If "", uses the default display, and passes is out by reference.
- * @param	file	The file to set the bg to
- * @param	mode	Stretch, tile, center, bestfit
- * @param	bgcolor	The background color for modes that do not cover entire portions
- * @return			If it went smoothly
+ * Factory method to produce a concrete SetBG derived class.
+ * You are responsible for freeing the result.
  */
-bool SetBG::set_bg(	Glib::ustring &disp, Glib::ustring file, SetMode mode, Gdk::Color bgcolor) {
-
-	gint winx,winy,winw,winh,wind;
-	Glib::RefPtr<Gdk::Display> _display;
- 	Glib::RefPtr<Gdk::Screen> screen;
-	Glib::RefPtr<Gdk::Window> window;
-	Glib::RefPtr<Gdk::GC> gc_;
-	Glib::RefPtr<Gdk::Colormap> colormap;
-	Glib::RefPtr<Gdk::Pixbuf> pixbuf, outpixbuf;
-	Glib::RefPtr<Gdk::Pixmap> pixmap;
-
-	// open display and screen
-	_display = (disp == "") ? Gdk::Display::open(Gdk::DisplayManager::get()->get_default_display()->get_name()) : Gdk::Display::open(disp);
-	if (!_display) {
-		std::cerr << _("Could not open display") << " " << disp << "\n";
-		return false;
-	}
-
-	// get the screen
-	screen = _display->get_default_screen();
-
-	// restore the disp name
-	disp = screen->make_display_name();
-
-	// get window stuff
-	window = screen->get_root_window();
-	window->get_geometry(winx,winy,winw,winh,wind);
-
-	// check to see if nautilus is running
-	if (SetBG::get_rootwindowtype(window) == SetBG::NAUTILUS)
-		return SetBG::set_bg_nautilus(screen, file, mode, bgcolor);
-
-    // NOTE: although we now have a way of detecting XFCE, just setting the bg like
-    // in normal X seems to work just fine.
-
-	// create gc and colormap
-	gc_ = Gdk::GC::create(window);
-	colormap = screen->get_default_colormap();
-
-	// allocate bg color
-	colormap->alloc_color(bgcolor, false, true);
-
-	// create pixmap 
-	pixmap = Gdk::Pixmap::create(window,winw,winh,window->get_depth());
-	pixmap->set_colormap(colormap);
-
-	// get our pixbuf from the file
-	try {
-		pixbuf = Gdk::Pixbuf::create_from_file(file);	
-	} catch (Glib::FileError e) {
-		std::cerr << _("ERROR: Could not load file in bg set") << ": " << e.what() << "\n";
-		return false;
-	}
-
-	// apply the bg color to pixbuf here, because every make_ method would
-	// have to do it anyway.
-	pixbuf = pixbuf->composite_color_simple(pixbuf->get_width(),
-		pixbuf->get_height(), Gdk::INTERP_NEAREST, 255, 1, bgcolor.get_pixel(),
-		bgcolor.get_pixel());
-
-    // if automatic, figure out what mode we really want
-    if (mode == SetBG::SET_AUTO)
-        mode = SetBG::get_real_mode(pixbuf, winw, winh);
-
-	switch(mode) {
-	
-		case SetBG::SET_SCALE:
-			outpixbuf = SetBG::make_scale(pixbuf, winw, winh, bgcolor);
-			break;
-
-		case SetBG::SET_TILE:
-			outpixbuf = SetBG::make_tile(pixbuf, winw, winh, bgcolor);
-			break;
-
-		case SetBG::SET_CENTER:
-			outpixbuf = SetBG::make_center(pixbuf, winw, winh, bgcolor);
-			break;
-
-		case SetBG::SET_ZOOM:
-			outpixbuf = SetBG::make_zoom(pixbuf, winw, winh, bgcolor);
-			break;
-
-		case SetBG::SET_ZOOM_FILL:
-			outpixbuf = SetBG::make_zoom_fill(pixbuf, winw, winh, bgcolor);
-			break;
-			
-		default:
-			std::cerr << _("Unknown mode for saved bg on") << " " << disp << std::endl;
-			return false;
-	};
-
-	// render it to the pixmap
-	pixmap->draw_pixbuf(gc_, outpixbuf, 0,0,0,0, winw, winh, Gdk::RGB_DITHER_NONE,0,0);
-	
-	// begin the X fun!
-	Display *xdisp = GDK_DISPLAY_XDISPLAY(_display->gobj());
-	XSetCloseDownMode(xdisp, RetainPermanent);
-	Window xwin = DefaultRootWindow(xdisp);
-	Pixmap xpm = GDK_PIXMAP_XID(pixmap->gobj());
-	
-	// FROM HERE, mostly ported from feh and 
-	// http://www.eterm.org/docs/view.php?doc=ref#trans
-	
-	Atom prop_root, prop_esetroot, type;
-	int format;
-	unsigned long length, after;
-	unsigned char *data_root, *data_esetroot;
-	
-	// set and make persistant
-
-	prop_root = XInternAtom(xdisp, "_XROOTPMAP_ID", True);
-	prop_esetroot = XInternAtom(xdisp, "ESETROOT_PMAP_ID", True);
-	
-	if (prop_root != None && prop_esetroot != None) {
-		XGetWindowProperty(xdisp, xwin, prop_root, 0L, 1L, False, AnyPropertyType, &type, &format, &length, &after, &data_root);
-		if (type == XA_PIXMAP) {
-			XGetWindowProperty(xdisp, xwin, prop_esetroot, 0L, 1L, False, AnyPropertyType, &type, &format, &length, &after, &data_esetroot);
-			if (data_root && data_esetroot)
-				if (type == XA_PIXMAP && *((Pixmap *) data_root) == *((Pixmap *) data_esetroot)) {
-					//XFreePixmap(xdisp, *((Pixmap*) data_root));
-					XKillClient(xdisp, *((Pixmap *) data_root));
-					//std::cout << "Shoulda killed\n";
-					//printf("Test says to remove %x\n", *((Pixmap*) data_root));
-				}
-		}
-	}
-
-	prop_root = XInternAtom(xdisp, "_XROOTPMAP_ID", False);
-	prop_esetroot = XInternAtom(xdisp, "ESETROOT_PMAP_ID", False);
-
-	if (prop_root == None || prop_esetroot == None) {
-		std::cerr << _("ERROR: BG set could not make atoms.") << "\n";
-		return false;
-	}
-
-	XChangeProperty(xdisp, xwin, prop_root, XA_PIXMAP, 32, PropModeReplace, (unsigned char *) &xpm, 1);
-	XChangeProperty(xdisp, xwin, prop_esetroot, XA_PIXMAP, 32, PropModeReplace, (unsigned char *) &xpm, 1);
-
-	// set it gtk style
-	window->set_back_pixmap(pixmap, false);
-	window->clear();
-
-	gc_.clear();
-
-    // close display
-	_display->close();
-
-	return true;
-}
-
-#ifdef USE_XINERAMA
-/**
- * Sets a bg on a Xinerama "screen", which is one of the virtual screens on a Xinerama display.
- *
- */
-bool SetBG::set_bg_xinerama(XineramaScreenInfo* xinerama_info, gint xinerama_num_screens, Glib::ustring xinerama_screen, Glib::ustring file, SetMode mode, Gdk::Color bgcolor)
+SetBG* SetBG::get_bg_setter()
 {
-	gint winx,winy,winw,winh,wind;
-	Glib::RefPtr<Gdk::Display> _display;
- 	Glib::RefPtr<Gdk::Screen> screen;
-	Glib::RefPtr<Gdk::Window> window;
-	Glib::RefPtr<Gdk::GC> gc_;
-	Glib::RefPtr<Gdk::Colormap> colormap;
-	Glib::RefPtr<Gdk::Pixbuf> pixbuf, outpixbuf;
-	Glib::RefPtr<Gdk::Pixmap> pixmap;
-	gint xin_screen_num; 
-	int xin_offset = -1;
+    Glib::RefPtr<Gdk::Display> dpy = Gdk::DisplayManager::get()->get_default_display();
 
-    program_log("set_bg_xinerama(): num screens %d, xin screen %s, file %s", xinerama_num_screens, xinerama_screen.c_str(), file.c_str());
+    SetBG* setter = NULL;
+    SetBG::RootWindowType wt = SetBG::get_rootwindowtype(dpy);
 
-	// get specific xinerama "screen"
-	// xinerama_screen is a string that should be "xin_#"
-	// "xin_-1" refers to the whole thing
-	Glib::ustring xin_numstr = xinerama_screen.substr(4);
-	std::stringstream sstr;
-	sstr << xin_numstr;	
-	sstr >> xin_screen_num;
+    Util::program_log("root window type %d\n", wt);
 
-	if ( xin_screen_num != -1 ) {
-		for (int i=0; i<xinerama_num_screens; i++)
-			if (xinerama_info[i].screen_number == xin_screen_num)
-				xin_offset = i;
+    switch (wt) {
+        case SetBG::NAUTILUS:
+            setter = new SetBGGnome();
+            break;
+        case SetBG::NEMO:
+            setter = new SetBGNemo();
+            break;
+#ifdef USE_XINERAMA
+        case SetBG::XINERAMA:
+            XineramaScreenInfo *xinerama_info;
+            gint xinerama_num_screens;
 
-		if (xin_offset == -1) {
-			std::cerr << _("Could not find Xinerama screen number") << " " << xin_screen_num << "\n";
-			return false;
-		}
-	}
+            xinerama_info = XineramaQueryScreens(GDK_DISPLAY_XDISPLAY(dpy->gobj()), &xinerama_num_screens);
 
-	// open display and screen (make sure it is a copy of the default display)
-	_display = Gdk::Display::open(Gdk::DisplayManager::get()->get_default_display()->get_name());
-	if (!_display) {
-		std::cerr << _("Could not open display") << "\n";
-		return false;
-	}
-
-	// get the screen
-	screen = _display->get_default_screen();
-
-	// get window stuff
-	window = screen->get_root_window();
-	window->get_geometry(winx,winy,winw,winh,wind);
-
-	// determine our target dimensions
-	gint tarx, tary, tarw, tarh;
-	if (xin_screen_num == -1) {
-		tarx = winx;
-		tary = winy;
-		tarw = winw;
-		tarh = winh;
-	} else {
-		tarx = xinerama_info[xin_offset].x_org;
-		tary = xinerama_info[xin_offset].y_org;
-		tarw = xinerama_info[xin_offset].width;
-		tarh = xinerama_info[xin_offset].height;
-	}
-
-	Display *xdisp = GDK_DISPLAY_XDISPLAY(_display->gobj());
-	Window xwin = DefaultRootWindow(xdisp);
-	Pixmap* xoldpm = NULL;
-
-	Atom prop_root, prop_esetroot, type;
-	int format;
-	unsigned long length, after;
-	unsigned char *data_root, *data_esetroot;
-	
-	prop_root = XInternAtom(xdisp, "_XROOTPMAP_ID", True);
-	prop_esetroot = XInternAtom(xdisp, "ESETROOT_PMAP_ID", True);
-	
-	if (prop_root != None && prop_esetroot != None) {
-		XGetWindowProperty(xdisp, xwin, prop_root, 0L, 1L, False, AnyPropertyType, &type, &format, &length, &after, &data_root);
-		if (type == XA_PIXMAP) {
-			XGetWindowProperty(xdisp, xwin, prop_esetroot, 0L, 1L, False, AnyPropertyType, &type, &format, &length, &after, &data_esetroot);
-			if (data_root && data_esetroot)
-				if (type == XA_PIXMAP && *((Pixmap *) data_root) == *((Pixmap *) data_esetroot)) {
-					xoldpm = (Pixmap*)data_root;
-				}
-		}
-	}
-
-	// we need to alloc a colormap every time
-	colormap = Gdk::Colormap::get_system();
-
-	// alloc our background color 
-	colormap->alloc_color(bgcolor, false, true);
-
-	if (xoldpm) {
-		// grab the old pixmap and ref it into a gdk pixmap
-		pixmap = Gdk::Pixmap::create(_display, *xoldpm);
-		// check that this pixmap is the right size
-		int width, height;
-		pixmap->get_size(width, height);
-
-		if ((width != winw) || (height != winh) || (pixmap->get_depth() != window->get_depth()) ) {
-			XKillClient(xdisp, *((Pixmap *) data_root));
-			xoldpm = NULL;
-		}
-	}
-
-	if (!xoldpm) {
-		// we have to create it
-		pixmap = Gdk::Pixmap::create(window,winw,winh,window->get_depth());
-        int width, height;
-        pixmap->get_size(width, height);
-
-        // only set the mode if we never had an old pixmap to work with
-	    XSetCloseDownMode(xdisp, RetainPermanent);
-	}
-
-	// set the colormap 
-	pixmap->set_colormap(colormap);
-
-	// get our pixbuf from the file
-	try {
-		pixbuf = Gdk::Pixbuf::create_from_file(file);	
-	} catch (Glib::FileError e) {
-		std::cerr << _("ERROR: Could not load file in bg set") << ": " << e.what() << "\n";
-		return false;
-	}
-
-	// apply the bg color to pixbuf here, because every make_ method would
-	// have to do it anyway.
-	pixbuf = pixbuf->composite_color_simple(pixbuf->get_width(),
-		pixbuf->get_height(), Gdk::INTERP_NEAREST, 255, 1, bgcolor.get_pixel(),
-		bgcolor.get_pixel());
-
-	// if automatic, figure out what mode we really want
-    if (mode == SetBG::SET_AUTO)
-        mode = SetBG::get_real_mode(pixbuf, winw, winh);
-
-    switch(mode) {
-	
-		case SetBG::SET_SCALE:
-			outpixbuf = SetBG::make_scale(pixbuf, tarw, tarh, bgcolor);
-			break;
-
-		case SetBG::SET_TILE:
-			outpixbuf = SetBG::make_tile(pixbuf, tarw, tarh, bgcolor);
-			break;
-
-		case SetBG::SET_CENTER:
-			outpixbuf = SetBG::make_center(pixbuf, tarw, tarh, bgcolor);
-			break;
-
-		case SetBG::SET_ZOOM:
-			outpixbuf = SetBG::make_zoom(pixbuf, tarw, tarh, bgcolor);
-			break;
-
-		case SetBG::SET_ZOOM_FILL:
-			outpixbuf = SetBG::make_zoom_fill(pixbuf, tarw, tarh, bgcolor);
-			break;
-			
-		default:
-			std::cerr << _("Unknown mode for saved bg") << " " << std::endl;
-			return false;
-	};
-
-	// render it to the pixmap
-	pixmap->draw_pixbuf(gc_, outpixbuf, 0,0, tarx, tary, tarw, tarh, Gdk::RGB_DITHER_NONE,0,0);
-
-	Pixmap xpm = GDK_PIXMAP_XID(pixmap->gobj());
-
-	prop_root = XInternAtom(xdisp, "_XROOTPMAP_ID", False);
-	prop_esetroot = XInternAtom(xdisp, "ESETROOT_PMAP_ID", False);
-
-	if (prop_root == None || prop_esetroot == None) {
-		std::cerr << _("ERROR: BG set could not make atoms.") << "\n";
-		return false;
-	}
-
-	XChangeProperty(xdisp, xwin, prop_root, XA_PIXMAP, 32, PropModeReplace, (unsigned char *) &xpm, 1);
-	XChangeProperty(xdisp, xwin, prop_esetroot, XA_PIXMAP, 32, PropModeReplace, (unsigned char *) &xpm, 1);
-
-	// set it gtk style
-	window->set_back_pixmap(pixmap, false);
-	window->clear();
-
-    _display->close();
-
-	return true;
-	
-}
-
+            setter = new SetBGXinerama();
+            ((SetBGXinerama*)setter)->set_xinerama_info(xinerama_info, xinerama_num_screens);
+            break;
 #endif
+        case SetBG::PCMANFM:
+            setter = new SetBGPcmanfm();
+            break;
+        case SetBG::DEFAULT:
+        default:
+            setter = new SetBGXWindows();
+            break;
+    };
+
+    return setter;
+}
 
 /**
  * Handles a BadWindow error in get_rootwindowtype.
@@ -400,11 +93,96 @@ int SetBG::handle_x_errors(Display *display, XErrorEvent *error)
 }
 
 /**
+ * Recursive function to find a window with _NET_WM_WINDOW_TYPE set to
+ * _NET_WM_WINDOW_TYPE_DESKTOP.
+ *
+ * Returns the window id if found.
+ *
+ * Returns:
+ * -1 if not found
+ *  <wid> if found
+ */
+int SetBG::find_desktop_window(Display *xdisp, Window curwindow) {
+    Window rr, pr;
+    Window *children;
+    unsigned int numchildren;
+    Atom ret_type;
+    int ret_format;
+    unsigned long ret_items, ret_bytesleft;
+    Atom *prop_return;
+
+    // search current window for atom
+    Atom propatom = XInternAtom(xdisp, "_NET_WM_WINDOW_TYPE", False);
+    Atom propval  = XInternAtom(xdisp, "_NET_WM_WINDOW_TYPE_DESKTOP", False);
+
+    XGetWindowProperty(xdisp, curwindow, propatom, 0L, 32L, False,
+            XA_ATOM, &ret_type, &ret_format, &ret_items, &ret_bytesleft,
+            (unsigned char**) &prop_return);
+
+    if (ret_type == XA_ATOM && ret_format == 32 && ret_items == 1) {
+        if (prop_return[0] == propval) {
+            XFree(prop_return);
+            return curwindow;
+        }
+    }
+
+
+    XQueryTree(xdisp, curwindow, &rr, &pr, &children, &numchildren);
+    for (int i = 0; i < numchildren; i++) {
+        int ret = find_desktop_window(xdisp, children[i]);
+        if (ret != -1) {
+            XFree(children);
+            return ret;
+        }
+    }
+
+    return -1;
+}
+
+/**
+ * Finds any false desktop/root window, either via root window hint or recursively.
+ *
+ * @returns The Window's ID, or 0.
+ */
+guint SetBG::get_root_window(Glib::RefPtr<Gdk::Display> display) {
+	GdkAtom type;
+    gint format;
+    gint length;
+	guchar *data;
+    gboolean ret = FALSE;
+    Glib::RefPtr<Gdk::Window> rootwin = display->get_default_screen()->get_root_window();
+    Display *xdisp = GDK_DISPLAY_XDISPLAY(rootwin->get_display()->gobj());
+    guint wid = 0;
+
+    ret = gdk_property_get(rootwin->gobj(),
+                           gdk_atom_intern("NAUTILUS_DESKTOP_WINDOW_ID", FALSE),
+                           gdk_atom_intern("WINDOW", FALSE),
+                           0L,
+                           4L, /* length of a window is 32bits*/
+                           FALSE, &type, &format, &length, &data);
+
+    if (ret) {
+        wid = *(guint*)data;
+        g_free(data);
+    } else {
+        // newer nautilus and nemo don't leave a hint on the root window (whyyyy)
+        // now we have to search for it!
+        Window xwin = DefaultRootWindow(xdisp);
+        gint wwid = find_desktop_window(xdisp, xwin);
+
+        if (wwid != -1)
+            wid = (guint)wwid;
+    }
+
+    return wid;
+}
+
+/**
  * Determines if Nautilus is being used to draw the root desktop.
  *
  * @returns 	True if nautilus is drawing the desktop.
  */
-SetBG::RootWindowType SetBG::get_rootwindowtype(Glib::RefPtr<Gdk::Window> rootwin)
+SetBG::RootWindowType SetBG::get_rootwindowtype(Glib::RefPtr<Gdk::Display> display)
 {
 	GdkAtom type;
     gint format;
@@ -412,113 +190,76 @@ SetBG::RootWindowType SetBG::get_rootwindowtype(Glib::RefPtr<Gdk::Window> rootwi
 	guchar *data;
     SetBG::RootWindowType retval = SetBG::DEFAULT;
     gboolean ret = FALSE;
+    Glib::RefPtr<Gdk::Window> rootwin;
+    guint wid = 0;
 
-	ret =    gdk_property_get(rootwin->gobj(),
-						      gdk_atom_intern("NAUTILUS_DESKTOP_WINDOW_ID", FALSE),
-                              gdk_atom_intern("WINDOW", FALSE),
-							  0,
-							  4, /* length of a window is 32bits*/
-							  FALSE, &type, &format, &length, &data);
-
-    if (!ret)
-        return SetBG::DEFAULT;
-
-    guint wid = *(guint*)data;
-
+    rootwin = display->get_default_screen()->get_root_window();
     Display *xdisp = GDK_DISPLAY_XDISPLAY(rootwin->get_display()->gobj());
-    Atom propatom = XInternAtom(xdisp, "WM_CLASS", FALSE);
 
-    XTextProperty tprop;
+    wid = get_root_window(display);
 
-    gchar **list;
-    gint num;
+    if (wid > 0) {
 
-    XErrorHandler old_x_error_handler = XSetErrorHandler(SetBG::handle_x_errors);
-    bool bGotText = XGetTextProperty(xdisp, wid, &tprop, propatom);
-    XSetErrorHandler(old_x_error_handler);
+        Atom propatom = XInternAtom(xdisp, "WM_CLASS", FALSE);
 
-    if (bGotText && tprop.nitems)
-    {
-        if (XTextPropertyToStringList(&tprop, &list, &num))
+        XTextProperty tprop;
+
+        gchar **list;
+        gint num;
+
+        XErrorHandler old_x_error_handler = XSetErrorHandler(SetBG::handle_x_errors);
+        bool bGotText = XGetTextProperty(xdisp, wid, &tprop, propatom);
+        XSetErrorHandler(old_x_error_handler);
+
+        if (bGotText && tprop.nitems)
         {
-            // expect 2 strings here (XLib tells us there are 3)
-            if (num != 3)
-                retval = SetBG::DEFAULT;
-            else
+            if (XTextPropertyToStringList(&tprop, &list, &num))
             {
-                std::string strclass = std::string(list[1]);
-                if (strclass == std::string("Xfdesktop")) retval = SetBG::XFCE;     else
-                if (strclass == std::string("Nautilus"))  retval = SetBG::NAUTILUS; else
+                // expect 2 strings here (XLib tells us there are 3)
+                if (num != 3)
+                    retval = SetBG::DEFAULT;
+                else
                 {
-                    std::cerr << _("UNKNOWN ROOT WINDOW TYPE DETECTED, will attempt to set via normal X procedure") << "\n";
-                    retval = SetBG::UNKNOWN;
-                }
+                    std::string strclass = std::string(list[1]);
+                    if (strclass == std::string("Xfdesktop")) retval = SetBG::XFCE;     else
+                    if (strclass == std::string("Nautilus"))  retval = SetBG::NAUTILUS; else
+                    if (strclass == std::string("Nemo"))      retval = SetBG::NEMO;     else
+                    if (strclass == std::string("Pcmanfm"))   retval = SetBG::PCMANFM;  else
+                    {
+                        std::cerr << _("UNKNOWN ROOT WINDOW TYPE DETECTED, will attempt to set via normal X procedure") << "\n";
+                        retval = SetBG::UNKNOWN;
+                    }
 
-         }
+             }
 
-            XFreeStringList(list);
+                XFreeStringList(list);
+            }
+            XFree(tprop.value);
         }
-        XFree(tprop.value);
+
+        return retval;
     }
 
-    g_free(data);
-    return retval;
-}
+    // check for mutter atoms on root window
+    ret = gdk_property_get(rootwin->gobj(),
+            gdk_atom_intern("_MUTTER_SENTINEL", FALSE),
+            gdk_atom_intern("CARDINAL", FALSE),
+            0L,
+            4L,
+            FALSE, &type, &format, &length, &data);
 
-/**
- * Sets the bg if nautilus is appearing to draw the desktop image.
- *
- * Simply calls gconftool-2 for now, until we find a better way to do it.
- */
-bool SetBG::set_bg_nautilus(Glib::RefPtr<Gdk::Screen> screen, Glib::ustring file, SetMode mode, Gdk::Color bgcolor) {
-
-	GError *error = NULL;
-
-    Glib::ustring strmode = "scaled";       // in case of more modes
-	switch(mode) {
-		case SetBG::SET_SCALE:  strmode = "stretched";  break;
-		case SetBG::SET_TILE:   strmode = "wallpaper"; break; 
-		case SetBG::SET_CENTER: strmode = "centered"; break;
-		case SetBG::SET_ZOOM:   strmode = "scaled"; break;
-		case SetBG::SET_ZOOM_FILL:   strmode = "scaled"; break;
-	};
-
-    std::vector<std::string> vecCmdLine;
-    vecCmdLine.push_back(std::string("gconftool-2"));
-    vecCmdLine.push_back(std::string("--type"));
-    vecCmdLine.push_back(std::string("string"));
-    vecCmdLine.push_back(std::string("--set"));
-    vecCmdLine.push_back(std::string("/desktop/gnome/background/picture_options"));
-    vecCmdLine.push_back(std::string(strmode));
-    vecCmdLine.push_back(std::string("--set"));
-    vecCmdLine.push_back(std::string("/desktop/gnome/background/picture_filename"));
-    vecCmdLine.push_back(std::string(file));
-
-    std::string strcolor = std::string( bgcolor.to_string() );
-    vecCmdLine.push_back(std::string("--set"));
-    vecCmdLine.push_back(std::string("/desktop/gnome/background/primary_color"));
-    vecCmdLine.push_back(strcolor);
-    vecCmdLine.push_back(std::string("--set"));
-    vecCmdLine.push_back(std::string("/desktop/gnome/background/secondary_color"));
-    vecCmdLine.push_back(strcolor);
-    
-    try
-    {
-        Glib::spawn_async("", vecCmdLine, Glib::SPAWN_SEARCH_PATH);
+    if (ret) {
+        g_free(data);
+        return SetBG::NAUTILUS; // mutter uses same keys
     }
-    catch (Glib::SpawnError e)
-    {
-		std::cerr << _("ERROR") << "\n" << e.what() << "\n";
-		
-        for (std::vector<std::string>::const_iterator i = vecCmdLine.begin(); i != vecCmdLine.end(); i++)
-			std::cerr << *i << " ";
 
-		std::cerr << "\n";
+#ifdef USE_XINERAMA
+    // determine if xinerama is in play
+    if (XineramaIsActive(GDK_DISPLAY_XDISPLAY(display->gobj())))
+        return SetBG::XINERAMA;
+#endif
 
-        return false;
-	}
-
-	return true;
+    return SetBG::DEFAULT;
 }
 
 /**
@@ -545,12 +286,12 @@ Glib::RefPtr<Gdk::Pixbuf> SetBG::make_scale(const Glib::RefPtr<Gdk::Pixbuf> orig
 Glib::RefPtr<Gdk::Pixbuf> SetBG::make_tile(const Glib::RefPtr<Gdk::Pixbuf> orig, const gint winw, const gint winh, Gdk::Color bgcolor) {
 	// copy and resize (mainly just resize :)
 	Glib::RefPtr<Gdk::Pixbuf> retval = orig->scale_simple(winw, winh, Gdk::INTERP_NEAREST);
-	
+
 	int orig_width = orig->get_width();
 	int orig_height = orig->get_height();
-	
+
 	unsigned count = 0;
-	
+
 	// copy across horizontally first
 	unsigned iterations = (unsigned)ceil((double)winw / (double)orig_width);
 	for (count = 0; count < iterations; count++) {
@@ -563,7 +304,7 @@ Glib::RefPtr<Gdk::Pixbuf> SetBG::make_tile(const Glib::RefPtr<Gdk::Pixbuf> orig,
 	for (count = 1; count < iterations; count++) {
 		retval->copy_area(0, 0, winw, ((count+ 1)*orig_height) > winh ? orig_height - (((count+1) * orig_height) - winh) : orig_height, retval, 0, count * orig_height);
 	}
-			
+
 	return retval;
 }
 
@@ -576,7 +317,7 @@ Glib::RefPtr<Gdk::Pixbuf> SetBG::make_tile(const Glib::RefPtr<Gdk::Pixbuf> orig,
  * @param	bgcolor	Background color
  */
 Glib::RefPtr<Gdk::Pixbuf> SetBG::make_center(const Glib::RefPtr<Gdk::Pixbuf> orig, const gint winw, const gint winh, Gdk::Color bgcolor) {
-	
+
 	Glib::RefPtr<Gdk::Pixbuf> retval = Gdk::Pixbuf::create(	orig->get_colorspace(),
 															orig->get_has_alpha(),
 															orig->get_bits_per_sample(),
@@ -585,7 +326,7 @@ Glib::RefPtr<Gdk::Pixbuf> SetBG::make_center(const Glib::RefPtr<Gdk::Pixbuf> ori
 
 	// use passed bg color
 	retval->fill(GdkColorToUint32(bgcolor));
-			
+
 	int destx = (winw - orig->get_width()) >> 1;
 	int desty = (winh - orig->get_height()) >> 1;
 	int srcx = 0;
@@ -605,7 +346,7 @@ Glib::RefPtr<Gdk::Pixbuf> SetBG::make_center(const Glib::RefPtr<Gdk::Pixbuf> ori
 	}
 
 	orig->copy_area(srcx, srcy, cpyw, cpyh, retval, destx, desty);
-	
+
 	return retval;
 }
 
@@ -618,10 +359,10 @@ Glib::RefPtr<Gdk::Pixbuf> SetBG::make_center(const Glib::RefPtr<Gdk::Pixbuf> ori
  * @param	bgcolor	Background color
  */
 Glib::RefPtr<Gdk::Pixbuf> SetBG::make_zoom(const Glib::RefPtr<Gdk::Pixbuf> orig, const gint winw, const gint winh, Gdk::Color bgcolor) {
-		
+
 	int x, y, resx, resy;
 	x = y = 0;
-		
+
 	// depends on bigger side
 	unsigned orig_w = orig->get_width();
 	unsigned orig_h = orig->get_height();
@@ -632,7 +373,7 @@ Glib::RefPtr<Gdk::Pixbuf> SetBG::make_zoom(const Glib::RefPtr<Gdk::Pixbuf> orig,
 		resy = (int)(((float)(orig->get_height()*resx))/(float)orig->get_width());
 		x = 0;
 		y = (winh - resy) >> 1;
-			
+
 	} else {
 		resy = winh;
 		resx = (int)(((float)(orig->get_width()*resy))/(float)orig->get_height());
@@ -664,7 +405,7 @@ Glib::RefPtr<Gdk::Pixbuf> SetBG::make_zoom(const Glib::RefPtr<Gdk::Pixbuf> orig,
 	tmp->copy_area(0, 0, tmp->get_width(), tmp->get_height(), retval, x, y);
 
 	return retval;
-}		
+}
 
 /**
  * Handles SET_ZOOM_FILL mode.
@@ -675,9 +416,9 @@ Glib::RefPtr<Gdk::Pixbuf> SetBG::make_zoom(const Glib::RefPtr<Gdk::Pixbuf> orig,
  * @param	bgcolor	Background color
  */
 Glib::RefPtr<Gdk::Pixbuf> SetBG::make_zoom_fill(const Glib::RefPtr<Gdk::Pixbuf> orig, const gint winw, const gint winh, Gdk::Color bgcolor) {
-		
+
 	int x, y, w, h;
-		
+
 	// depends on bigger side
 	unsigned orig_w = orig->get_width();
 	unsigned orig_h = orig->get_height();
@@ -716,12 +457,12 @@ Glib::RefPtr<Gdk::Pixbuf> SetBG::make_zoom_fill(const Glib::RefPtr<Gdk::Pixbuf> 
 }
 
 /**
- * Utility function to convert a mode (an enum) to a string. 
+ * Utility function to convert a mode (an enum) to a string.
  */
 Glib::ustring SetBG::mode_to_string( const SetMode mode ) {
 
 	Glib::ustring ret;
-	
+
 	switch ( mode ) {
 		case SET_SCALE:
 			ret = Glib::ustring(_("Scale"));
@@ -742,7 +483,7 @@ Glib::ustring SetBG::mode_to_string( const SetMode mode ) {
             ret = Glib::ustring(_("Auto"));
             break;
 	};
-	
+
 	return ret;
 }
 
@@ -784,7 +525,7 @@ guint32 SetBG::GdkColorToUint32(const Gdk::Color col)
 
 	// alpha should always be full (this caused ticket 4)
 	ret |= 255;
-	
+
 	return ret;
 }
 
@@ -814,5 +555,954 @@ SetBG::SetMode SetBG::get_real_mode(const Glib::RefPtr<Gdk::Pixbuf> pixbuf, cons
         mode = SetBG::SET_CENTER;
 
     return mode;
+}
+
+void SetBG::restore_bgs()
+{
+    std::vector<Glib::ustring> displist;
+	Glib::ustring file, display;
+	SetBG::SetMode mode;
+	Gdk::Color bgcolor;
+
+    // saving of pixmaps is for interactive only
+    disable_pixmap_save();
+
+	Config *cfg = Config::get_instance();
+
+    if (cfg->get_bg_groups(displist) == false) {
+        // @TODO exception??
+        std::cerr << _("Could not get bg groups from config file.") << std::endl;
+        return;
+    }
+
+    std::vector<Glib::ustring> filtered_list;
+    std::vector<Glib::ustring>::iterator i;
+
+    Glib::ustring prefix = this->get_prefix();
+
+    for (i = displist.begin(); i != displist.end(); i++)
+        if ((*i).compare(0, prefix.length(), prefix) == 0)
+            filtered_list.push_back((*i));
+
+    // do we have a "full screen" item set?
+    Glib::ustring fullscreen = this->get_fullscreen_key();
+
+    i = std::find_if(filtered_list.begin(), filtered_list.end(), std::bind2nd(std::equal_to<Glib::ustring>(), fullscreen));
+
+    if (i == filtered_list.end()) {
+        for (i = filtered_list.begin(); i != filtered_list.end(); i++)
+        {
+            if (cfg->get_bg(*i, file, mode, bgcolor)) {
+                this->set_bg((*i), file, mode, bgcolor);
+            } else {
+                std::cerr << _("ERROR") << std::endl;
+            }
+        }
+    } else {
+        if (cfg->get_bg(*i, file, mode, bgcolor)) {
+            this->set_bg((*i), file, mode, bgcolor);
+        } else {
+            std::cerr << _("ERROR") << std::endl;
+        }
+    }
+}
+
+/**
+ * Returns a Gdk::Display object for use with any of the set_bg derivations.
+ */
+Glib::RefPtr<Gdk::Display> SetBG::get_display(const Glib::ustring& disp)
+{
+    Glib::RefPtr<Gdk::Display> _display = Gdk::Display::open(Gdk::DisplayManager::get()->get_default_display()->get_name());
+	if (!_display) {
+		std::cerr << _("Could not open display") << "\n";
+		throw 1;
+	}
+
+    return _display;
+}
+
+/**
+ * Base driver for set_bg in derived classes.
+ *
+ * @param	disp	The display to set it on.  If "", uses the default display, and passes is out by reference.
+ * @param	file	The file to set the bg to
+ * @param	mode	Stretch, tile, center, bestfit
+ * @param	bgcolor	The background color for modes that do not cover entire portions
+ * @return			If it went smoothly
+ */
+bool SetBG::set_bg(Glib::ustring &disp, Glib::ustring file, SetMode mode, Gdk::Color bgcolor)
+{
+    gint winx,winy,winw,winh,wind;
+	gint tarx, tary, tarw, tarh;
+    Glib::RefPtr<Gdk::Display> _display = this->get_display(disp);
+    Glib::RefPtr<Gdk::Screen> screen;
+    Glib::RefPtr<Gdk::Window> window;
+    Glib::RefPtr<Gdk::GC> gc_;
+    Glib::RefPtr<Gdk::Colormap> colormap;
+    Glib::RefPtr<Gdk::Pixbuf> pixbuf, outpixbuf;
+    Glib::RefPtr<Gdk::Pixmap> pixmap;
+    Display *xdisp = GDK_DISPLAY_XDISPLAY(_display->gobj());
+    Window xwin = DefaultRootWindow(xdisp);
+    Atom prop_root, prop_esetroot, type;
+    int format;
+    unsigned long length, after;
+    unsigned char *data_root, *data_esetroot;
+
+    // get the screen
+    screen = _display->get_default_screen();
+
+    // get window stuff
+    window = screen->get_root_window();
+    window->get_geometry(winx, winy, winw, winh, wind);
+
+    // get target dimensions
+    if (!get_target_dimensions(disp, winx, winy, winw, winh, tarx, tary, tarw, tarh))
+        return false;
+
+    // create gc and colormap
+    gc_ = Gdk::GC::create(window);
+    colormap = screen->get_default_colormap();
+
+    // allocate bg color
+    colormap->alloc_color(bgcolor, false, true);
+
+    // get or create pixmap - for xinerama, may use existing one to merge
+    // this will delete the old pixmap if necessary
+    // also sets shutdown mode if necessary
+    pixmap = this->get_or_create_pixmap(disp, _display, window, winw, winh, wind, colormap);
+
+    // get our pixbuf from the file
+    try {
+        pixbuf = Gdk::Pixbuf::create_from_file(file);
+    } catch (Glib::FileError e) {
+        std::cerr << _("ERROR: Could not load file in bg set") << ": " << e.what() << "\n";
+        return false;
+    }
+
+    outpixbuf = this->make_resized_pixbuf(pixbuf, mode, bgcolor, tarw, tarh);
+
+    // render it to the pixmap
+	pixmap->draw_pixbuf(gc_, outpixbuf, 0, 0, tarx, tary, tarw, tarh, Gdk::RGB_DITHER_NONE, 0, 0);
+
+    // set it via XLib
+    Pixmap xpm = GDK_PIXMAP_XID(pixmap->gobj());
+
+    set_current_pixmap(_display, &xpm);
+
+    // cleanup
+	gc_.clear();
+
+    // close down display
+    _display->close();
+
+    return true;
+}
+
+/**
+ * Sets the target dimensions based on window dimensions and display.
+ *
+ * For this base version, simply copies the window dimensions to the target
+ * dimensions.
+ */
+bool SetBG::get_target_dimensions(Glib::ustring& disp, gint winx, gint winy, gint winw, gint winh, gint& tarx, gint& tary, gint& tarw, gint& tarh)
+{
+    tarx = winx;
+    tary = winy;
+    tarw = winw;
+    tarh = winh;
+
+    return true;
+}
+
+/**
+ * Creates a resized pixbuf given the mode, bgcolor, and target size.
+ */
+Glib::RefPtr<Gdk::Pixbuf> SetBG::make_resized_pixbuf(Glib::RefPtr<Gdk::Pixbuf> pixbuf, SetBG::SetMode mode, Gdk::Color bgcolor, gint tarw, gint tarh)
+{
+    Glib::RefPtr<Gdk::Pixbuf> outpixbuf;
+
+    // apply the bg color to pixbuf here, because every make_ method would
+    // have to do it anyway.
+    pixbuf = pixbuf->composite_color_simple(pixbuf->get_width(),
+            pixbuf->get_height(), Gdk::INTERP_NEAREST, 255, 1, bgcolor.get_pixel(),
+            bgcolor.get_pixel());
+
+    // if automatic, figure out what mode we really want
+    if (mode == SetBG::SET_AUTO)
+        mode = SetBG::get_real_mode(pixbuf, tarw, tarh);
+
+    switch(mode) {
+        case SetBG::SET_SCALE:
+            outpixbuf = SetBG::make_scale(pixbuf, tarw, tarh, bgcolor);
+            break;
+
+        case SetBG::SET_TILE:
+            outpixbuf = SetBG::make_tile(pixbuf, tarw, tarh, bgcolor);
+            break;
+
+        case SetBG::SET_CENTER:
+            outpixbuf = SetBG::make_center(pixbuf, tarw, tarh, bgcolor);
+            break;
+
+        case SetBG::SET_ZOOM:
+            outpixbuf = SetBG::make_zoom(pixbuf, tarw, tarh, bgcolor);
+            break;
+
+        case SetBG::SET_ZOOM_FILL:
+            outpixbuf = SetBG::make_zoom_fill(pixbuf, tarw, tarh, bgcolor);
+            break;
+
+        default:
+            std::cerr << _("Unknown mode for saved bg") << std::endl;
+            // @TODO: raise exception
+            //return false;
+    };
+
+    return outpixbuf;
+}
+
+/**
+ * Returns the Pixmap to use as the permanent background.
+ *
+ * This method will either wrap and return the existing pixmap to be reused,
+ * or create a new one if one doesn't exist or the dimensions are incorrect.
+ *
+ * It will delete the old pixmap if appropriate and set the proper close down
+ * mode on the X display.
+ */
+Glib::RefPtr<Gdk::Pixmap> SetBG::get_or_create_pixmap(Glib::ustring disp, Glib::RefPtr<Gdk::Display> _display, Glib::RefPtr<Gdk::Window> window, gint winw, gint winh, gint wind, Glib::RefPtr<Gdk::Colormap> colormap)
+{
+    Glib::RefPtr<Gdk::Pixmap> pixmap;
+    Display *xdisp = GDK_DISPLAY_XDISPLAY(_display->gobj());
+    Window xwin    = DefaultRootWindow(xdisp);
+    Pixmap* xoldpm = get_current_pixmap(_display);
+
+    // if this is the first time we've set, don't delete/reuse the first pixmap - we hold onto
+    // it for possible restore on program exit
+    if (xoldpm && !has_set_once) {
+        has_set_once = true;
+        first_pixmaps[disp] = xoldpm;
+        xoldpm = NULL;
+    }
+
+    if (xoldpm)
+    {
+        // grab the old pixmap and ref it into a gdk pixmap
+        pixmap = Gdk::Pixmap::create(_display, *xoldpm);
+
+        // check that this pixmap is the right size
+        int width, height;
+        pixmap->get_size(width, height);
+
+        if ((width != winw) || (height != winh) || (pixmap->get_depth() != wind)) {
+            XKillClient(xdisp, *(xoldpm));
+            xoldpm = NULL;
+        }
+    }
+
+    if (!xoldpm) {
+        // we have to create it
+        pixmap = Gdk::Pixmap::create(window, winw, winh, wind);
+
+        // copy from the first pixmap, if it exists
+        if (first_pixmaps.find(disp) != first_pixmaps.end()) {
+            Pixmap newxpm = GDK_PIXMAP_XID(pixmap->gobj());
+            Glib::RefPtr<Gdk::GC> gc_ = Gdk::GC::create(pixmap);
+            GC xgc = GDK_GC_XGC(gc_->gobj());
+
+            xoldpm = first_pixmaps[disp];
+            XCopyArea(xdisp, *xoldpm, newxpm, xgc, 0, 0, winw, winh, 0, 0);
+
+            gc_.clear();
+        }
+
+        // only set the mode if we never had an old pixmap to work with
+        XSetCloseDownMode(xdisp, RetainPermanent);
+    }
+
+    pixmap->set_colormap(colormap);
+    return pixmap;
+}
+
+/**
+ * Returns the current X Pixmap set as the background.
+ */
+Pixmap* SetBG::get_current_pixmap(Glib::RefPtr<Gdk::Display> _display)
+{
+    Display *xdisp = GDK_DISPLAY_XDISPLAY(_display->gobj());
+    Window xwin    = DefaultRootWindow(xdisp);
+    Pixmap* xoldpm = NULL;
+    Atom prop_root, prop_esetroot, type;
+    int format;
+    unsigned long length, after;
+    unsigned char *data_root, *data_esetroot;
+
+    prop_root = XInternAtom(xdisp, "_XROOTPMAP_ID", True);
+    prop_esetroot = XInternAtom(xdisp, "ESETROOT_PMAP_ID", True);
+
+    if (prop_root != None && prop_esetroot != None) {
+        XGetWindowProperty(xdisp, xwin, prop_root, 0L, 1L, False, AnyPropertyType, &type, &format, &length, &after, &data_root);
+        if (type == XA_PIXMAP) {
+            XGetWindowProperty(xdisp, xwin, prop_esetroot, 0L, 1L, False, AnyPropertyType, &type, &format, &length, &after, &data_esetroot);
+            if (data_root && data_esetroot)
+                if (type == XA_PIXMAP && *((Pixmap *) data_root) == *((Pixmap *) data_esetroot)) {
+                    xoldpm = (Pixmap*)data_root;
+                }
+        }
+    }
+
+    return xoldpm;
+}
+
+/**
+ * Sets the given Pixmap to be the display's permanent background.
+ */
+void SetBG::set_current_pixmap(Glib::RefPtr<Gdk::Display> _display, Pixmap* new_pixmap)
+{
+    Display *xdisp = GDK_DISPLAY_XDISPLAY(_display->gobj());
+    Window xwin = DefaultRootWindow(xdisp);
+    Atom prop_root, prop_esetroot, type;
+
+    prop_root = XInternAtom(xdisp, "_XROOTPMAP_ID", False);
+    prop_esetroot = XInternAtom(xdisp, "ESETROOT_PMAP_ID", False);
+
+    if (prop_root == None || prop_esetroot == None) {
+        std::cerr << _("ERROR: BG set could not make atoms.") << "\n";
+        return;
+    }
+
+    XChangeProperty(xdisp, xwin, prop_root, XA_PIXMAP, 32, PropModeReplace, (unsigned char *) &(*new_pixmap), 1);
+    XChangeProperty(xdisp, xwin, prop_esetroot, XA_PIXMAP, 32, PropModeReplace, (unsigned char *) &(*new_pixmap), 1);
+
+    // actually set the background via Xlib
+    XSetWindowBackgroundPixmap(xdisp, xwin, *new_pixmap);
+    XClearWindow(xdisp, xwin);
+}
+
+/**
+ * Frees the initial pixmaps that were saved on first set.
+ *
+ * This should be called after save.
+ */
+void SetBG::clear_first_pixmaps()
+{
+    for (std::map<Glib::ustring, Pixmap*>::iterator i = first_pixmaps.begin(); i != first_pixmaps.end(); i++) {
+        if ((*i).second == NULL)
+            continue;
+
+        Glib::RefPtr<Gdk::Display> _display = get_display((*i).first);
+        Display *xdisp = GDK_DISPLAY_XDISPLAY(_display->gobj());
+
+        XKillClient(xdisp, *((*i).second));
+    }
+
+    first_pixmaps.erase(first_pixmaps.begin(), first_pixmaps.end());
+}
+
+/**
+ * For each display that has a recorded first pixmap, kills whatever is the current background
+ * and resets the background to be the one saved at the intial set time.
+ */
+void SetBG::reset_first_pixmaps()
+{
+    for (std::map<Glib::ustring, Pixmap*>::iterator i = first_pixmaps.begin(); i != first_pixmaps.end(); i++) {
+        if ((*i).second == NULL)
+            continue;
+
+        Glib::RefPtr<Gdk::Display> _display = get_display((*i).first);
+        Display *xdisp = GDK_DISPLAY_XDISPLAY(_display->gobj());
+        Pixmap *current_pixmap = NULL;
+
+        // get current pixmap from root window
+        current_pixmap = get_current_pixmap(_display);
+
+        // if they are the same (how?), no need to do anything
+        if ((*i).second == current_pixmap)
+           return;
+
+        // ok, they aren't the same. kill the current one
+        XKillClient(xdisp, *((Pixmap *) current_pixmap));
+
+        // set the first one back to the prop
+        set_current_pixmap(_display, (*i).second);
+    }
+}
+
+/**
+ * Sets a flag to prevent saving the first pixmap.
+ * Used by non-interactive modes.
+ */
+void SetBG::disable_pixmap_save()
+{
+    has_set_once = true;
+}
+
+/**
+ * Returns if this background setter should be setting the Nitrogen configuration.
+ *
+ * Override this in alternate setters that may directly touch external configurations.
+ */
+bool SetBG::save_to_config()
+{
+    return true;
+}
+
+/*
+ * **************************************************************************
+ * SetBGXwindows
+ * **************************************************************************
+ */
+
+/**
+ * Gets all active screens on this display.
+ * This is used by the main window to determine what to show in the dropdown,
+ * if anything.
+ *
+ * Returns a map of display string to human-readable representation.
+ */
+std::map<Glib::ustring, Glib::ustring> SetBGXWindows::get_active_displays()
+{
+    Glib::RefPtr<Gdk::Display> disp = Gdk::DisplayManager::get()->get_default_display();
+    std::map<Glib::ustring, Glib::ustring> map_displays;
+
+    for (int i=0; i < disp->get_n_screens(); i++) {
+        Glib::RefPtr<Gdk::Screen> screen = disp->get_screen(i);
+        std::ostringstream ostr;
+        ostr << _("Screen") << " " << i;
+
+        map_displays[screen->make_display_name()] = ostr.str();
+    }
+
+    return map_displays;
+}
+
+/**
+ * Gets the gdk display used by the XWindows specific setter.
+ *
+ * Has the side effect of setting the disp param.
+ */
+Glib::RefPtr<Gdk::Display> SetBGXWindows::get_display(Glib::ustring& disp)
+{
+    Glib::RefPtr<Gdk::Display> _display;
+
+    if (disp != "")
+    {
+        _display = Gdk::Display::open(disp);
+        if (!_display) {
+            std::cerr << _("Could not open display") << " " << disp << "\n";
+        }
+        // @TODO: exception?
+    }
+    else
+    {
+        _display = SetBG::get_display(disp);
+        disp = _display->get_name();
+    }
+
+    return _display;
+}
+
+/**
+ * Gets the prefix used to save/restore backgrounds with this setter.
+ *
+ * For XWindows, will be a string of the display eg ":0" or ":1".
+ */
+Glib::ustring SetBGXWindows::get_prefix()
+{
+    Glib::ustring display = Gdk::DisplayManager::get()->get_default_display()->get_name();
+    return display;
+}
+
+/**
+ * Gets the full key for "full screen" for this setter.
+ *
+ * For XWindows, will be a string of the display eg ":0" or ":1".
+ * It is exactly the same as the prefix.
+ */
+Glib::ustring SetBGXWindows::get_fullscreen_key()
+{
+    return this->get_prefix();
+}
+
+/**
+ * Make a usable display key to pass to set_bg with a given head number.
+ * If no head number given, returns the fullscreen key.
+ *
+ * For XWindows, will be a string like ":0" or ":0.1"
+ */
+Glib::ustring SetBGXWindows::make_display_key(gint head)
+{
+    if (head == -1)
+        return this->get_fullscreen_key();
+
+    return Glib::ustring::compose("%1.%2", this->get_prefix(), head);
+}
+
+/*
+ * **************************************************************************
+ * SetBGXinerama
+ * **************************************************************************
+ */
+#ifdef USE_XINERAMA
+
+void SetBGXinerama::set_xinerama_info(XineramaScreenInfo* xinerama_info, gint xinerama_num_screens)
+{
+    this->xinerama_info = xinerama_info;
+    this->xinerama_num_screens = xinerama_num_screens;
+}
+
+/**
+ * Gets all active screens on this display.
+ * This is used by the main window to determine what to show in the dropdown,
+ * if anything.
+ *
+ * Returns a map of display string to human-readable representation.
+ */
+std::map<Glib::ustring, Glib::ustring> SetBGXinerama::get_active_displays()
+{
+    std::map<Glib::ustring, Glib::ustring> map_displays;
+
+    // always add full screen as we need the -1 key always
+    map_displays[this->get_fullscreen_key()] = _("Full Screen");
+
+    // add individual screens
+    for (int i=0; i < xinerama_num_screens; i++) {
+        std::ostringstream ostr;
+        ostr << _("Screen") << " " << xinerama_info[i].screen_number+1;
+
+        map_displays[this->make_display_key(xinerama_info[i].screen_number)] = ostr.str();
+    }
+
+    return map_displays;
+}
+
+Glib::ustring SetBGXinerama::get_prefix()
+{
+    Glib::ustring display("xin_");
+    return display;
+}
+
+/**
+ * Gets the full key for "full screen" for this setter.
+ *
+ * For Xinerama, this is "xin_-1".
+ */
+Glib::ustring SetBGXinerama::get_fullscreen_key()
+{
+    return Glib::ustring::compose("%1-1", this->get_prefix());
+}
+
+/**
+ * Make a usable display key to pass to set_bg with a given head number.
+ * If no head number given, returns the fullscreen key.
+ *
+ * For Xinerama, will be a string like "xin_-1" (fullscreen) or "xin_0"
+ */
+Glib::ustring SetBGXinerama::make_display_key(gint head)
+{
+    return Glib::ustring::compose("%1%2", this->get_prefix(), head);
+}
+
+/**
+ * Sets the target dimensions based on window dimensions and display.
+ *
+ * For this Xinerama version, it examines the disp string and uses the stored
+ * xinerama info about each screen to set the target.
+ */
+bool SetBGXinerama::get_target_dimensions(Glib::ustring& disp, gint winx, gint winy, gint winw, gint winh, gint& tarx, gint& tary, gint& tarw, gint& tarh)
+{
+    gint xin_screen_num;
+    int xin_offset = -1;
+
+    // get specific xinerama "screen"
+    // disp is a string that should be "xin_#"
+    // "xin_-1" refers to the whole thing
+    Glib::ustring xin_numstr = disp.substr(4);
+    std::stringstream sstr;
+    sstr << xin_numstr;
+    sstr >> xin_screen_num;
+
+    if (xin_screen_num != -1) {
+        for (int i=0; i<xinerama_num_screens; i++)
+            if (xinerama_info[i].screen_number == xin_screen_num)
+                xin_offset = i;
+
+        if (xin_offset == -1) {
+            std::cerr << _("Could not find Xinerama screen number") << " " << xin_screen_num << "\n";
+            return false;
+        }
+    }
+
+	if (xin_screen_num == -1) {
+		tarx = winx;
+		tary = winy;
+		tarw = winw;
+		tarh = winh;
+	} else {
+		tarx = xinerama_info[xin_offset].x_org;
+		tary = xinerama_info[xin_offset].y_org;
+		tarw = xinerama_info[xin_offset].width;
+		tarh = xinerama_info[xin_offset].height;
+	}
+
+    return true;
+}
+
+#endif
+
+/*
+ * **************************************************************************
+ * SetBGGnome
+ * **************************************************************************
+ */
+
+/**
+ * Sets the bg if nautilus is appearing to draw the desktop image.
+ *
+ * Simply calls gconftool-2 for now, until we find a better way to do it.
+ */
+bool SetBGGnome::set_bg(Glib::ustring &disp, Glib::ustring file, SetMode mode, Gdk::Color bgcolor)
+{
+    Glib::ustring strmode;
+    switch(mode) {
+        case SetBG::SET_SCALE:      strmode = "stretched";  break;
+        case SetBG::SET_TILE:       strmode = "wallpaper"; break;
+        case SetBG::SET_CENTER:     strmode = "centered"; break;
+        case SetBG::SET_ZOOM:       strmode = "scaled"; break;
+        case SetBG::SET_ZOOM_FILL:
+        default:                    strmode = "zoom"; break;
+	};
+
+    Glib::RefPtr<Gio::Settings> settings = Gio::Settings::create(get_gsettings_key());
+
+    Glib::RefPtr<Gio::File> iofile = Gio::File::create_for_commandline_arg(file);
+
+    settings->set_string("picture-uri", iofile->get_uri());
+    settings->set_string("picture-options", strmode);
+    settings->set_string("primary-color", bgcolor.to_string());
+    settings->set_string("secondary-color", bgcolor.to_string());
+
+    set_show_desktop();
+
+    return true;
+}
+
+std::map<Glib::ustring, Glib::ustring> SetBGGnome::get_active_displays()
+{
+    std::map<Glib::ustring, Glib::ustring> map_displays;
+    map_displays["dummy"] = "Gnome";
+    return map_displays;
+}
+
+Glib::ustring SetBGGnome::get_prefix()
+{
+    Glib::ustring display("");
+    return display;
+}
+
+/**
+ * Gets the full key for "full screen" for this setter.
+ * This is N/A i think?
+ */
+Glib::ustring SetBGGnome::get_fullscreen_key()
+{
+    Glib::ustring display("dummy");
+    return display;
+}
+
+/**
+ * Make a usable display key to pass to set_bg with a given head number.
+ * If no head number given, returns the fullscreen key.
+ */
+Glib::ustring SetBGGnome::make_display_key(gint head)
+{
+    return Glib::ustring("dummy");
+}
+
+/**
+ * Returns the schema key to be used for setting background settings.
+ *
+ * Can be overridden.
+ */
+Glib::ustring SetBGGnome::get_gsettings_key()
+{
+    return Glib::ustring("org.gnome.desktop.background");
+}
+
+/**
+ * Sets the show_desktop flag in the appropriate spot.
+ *
+ * This varies depending on actual software used, so needs to be own function
+ * to be overridden.
+ */
+void SetBGGnome::set_show_desktop()
+{
+    Glib::RefPtr<Gio::Settings> settings = Gio::Settings::create(get_gsettings_key());
+    settings->set_boolean("draw-background", true);
+}
+
+/**
+ * Returns if this background setter should be setting the Nitrogen configuration.
+ *
+ * The Gnome mode is completely external.
+ */
+bool SetBGGnome::save_to_config()
+{
+    return false;
+}
+
+/*
+ * **************************************************************************
+ * SetBGNemo
+ * **************************************************************************
+ */
+/**
+ * Returns the schema key to be used for setting background settings.
+ *
+ * Can be overridden.
+ */
+Glib::ustring SetBGNemo::get_gsettings_key()
+{
+    return Glib::ustring("org.cinnamon.desktop.background");
+}
+
+/**
+ * Sets the show_desktop flag in the appropriate spot.
+ *
+ * This varies depending on actual software used, so needs to be own function
+ * to be overridden.
+ */
+void SetBGNemo::set_show_desktop()
+{
+    Glib::RefPtr<Gio::Settings> settings = Gio::Settings::create(Glib::ustring("org.nemo.desktop"));
+    settings->set_boolean("draw-background", true);
+}
+
+/**
+ * Returns if this background setter should be setting the Nitrogen configuration.
+ *
+ * The Nemo mode is completely external.
+ */
+bool SetBGNemo::save_to_config()
+{
+    return false;
+}
+
+/*
+ * **************************************************************************
+ * SetBGPcmanfm
+ * **************************************************************************
+ */
+
+bool SetBGPcmanfm::set_bg(Glib::ustring &disp, Glib::ustring file, SetMode mode, Gdk::Color bgcolor)
+{
+	Atom ret_type;
+    int ret_format;
+    gulong ret_items;
+    gulong ret_bytesleft;
+	guchar *data;
+    Glib::ustring strmode;
+    switch(mode) {
+        case SetBG::SET_SCALE:      strmode = "stretch";  break;
+        case SetBG::SET_TILE:       strmode = "tile"; break;
+        case SetBG::SET_CENTER:     strmode = "center"; break;
+        case SetBG::SET_ZOOM:       strmode = "fit"; break;
+        case SetBG::SET_ZOOM_FILL:  strmode = "crop"; break;
+        default:                    strmode = "fit"; break;
+	};
+
+    // default to "LXDE" for profile name
+    Glib::ustring profileName = Glib::ustring("LXDE");
+
+    // find pcmanfm process (pull off root window)
+    Glib::RefPtr<Gdk::Display> display = Gdk::DisplayManager::get()->get_default_display();
+    Display* xdisp = GDK_DISPLAY_XDISPLAY(display->gobj());
+
+    guint wid = get_root_window(display);
+
+    if (wid > 0) {
+        // pull PID atom from pcman desktop window
+        Window curwindow = (Window)wid;
+
+        Atom propatom = XInternAtom(xdisp, "_NET_WM_PID", False);
+
+        int result = XGetWindowProperty(xdisp,
+                                        curwindow,
+                                        propatom,
+                                        0, G_MAXLONG,
+                                        False, XA_CARDINAL, &ret_type, &ret_format, &ret_items, &ret_bytesleft, &data);
+
+        if (result != Success) {
+            std::cerr << "ERROR: Could not determine pid of Pcmanfm desktop window, is _NET_WM_PID set on X root window?\n";
+            return false;
+        }
+
+        long pid = 0;
+
+        if (ret_type == XA_CARDINAL && ret_format == 32 && ret_items == 1) {
+            pid = ((long* )data)[0];
+            XFree(data);
+        }
+
+        if (pid > 0) {
+
+            // attempt to pull profile name from pcmanfm process command line
+            std::ostringstream ss;
+            ss << pid;
+
+            std::string filename = Glib::build_filename("/", "proc", ss.str(), "cmdline");
+            if (Glib::file_test(filename, Glib::FILE_TEST_EXISTS)) {
+                std::string contents = Glib::file_get_contents(filename);
+
+                // contents is a string with null characters. glib doesn't seem to like splitting on the null character,
+                // so we have to do it manually.
+                std::vector<Glib::ustring> splits;
+
+                std::string::const_iterator i = contents.begin();
+                while (i != contents.end()) {
+                    std::string::const_iterator next = std::find(i, (std::string::const_iterator)contents.end(), '\0');
+                    splits.push_back(std::string(i, next));
+                    i = next + 1;
+                }
+
+                // use our own ArgParse
+                ArgParser* parser = new ArgParser();
+                parser->register_option("profile", "", true);
+                parser->register_option("desktop");
+
+                if (parser->parse(splits)) {
+                   if (parser->has_argument("profile"))
+                       profileName = parser->get_value("profile");
+                   else
+                       // found pcmanfm exe, but no profile arg?  use 'default' instead of LXDE
+                       profileName = std::string("default");
+                }
+
+                // cleanup
+                delete parser;
+            }
+
+            // find configuration file in profile directory (do a minimal create if needed)
+            // mimics logic in pcmanfm_get_profile_dir
+            std::string configdir = Glib::build_filename(Glib::get_user_config_dir(), "pcmanfm", profileName);
+            if (!Glib::file_test(configdir, Glib::FILE_TEST_EXISTS)) {
+                Glib::RefPtr<Gio::File> giof = Gio::File::create_for_path(configdir);
+                giof->make_directory_with_parents();
+            }
+
+            // SPECIAL HANDLING: for "full screen", all configs must be set to the same bg and stretch across mode
+            if (disp == this->get_fullscreen_key()) {
+
+                // iterate all screens
+                std::map<Glib::ustring, Glib::ustring> map_displays = this->get_active_displays();
+                for (std::map<Glib::ustring, Glib::ustring>::const_iterator i = map_displays.begin(); i != map_displays.end(); i++) {
+
+                    // skip fullscreen key, there's no config file for that
+                    if (i->first == disp)
+                        continue;
+
+                    // read config file, set, save
+                    std::string configfile = Glib::build_filename(Glib::get_user_config_dir(), "pcmanfm", profileName, Glib::ustring::compose("desktop-items-%1.conf", i->first));
+
+                    Glib::KeyFile kf;
+                    kf.load_from_file(configfile);
+
+                    kf.set_string("*", "wallpaper_mode", "screen");
+                    kf.set_string("*", "wallpaper_common", "1");
+                    kf.set_string("*", "wallpaper", file);
+                    kf.set_string("*", "desktop_bg", Util::color_to_string(bgcolor));
+
+                    if (kf.has_key("*", "wallpapers_configured"))
+                        kf.remove_key("*", "wallpapers_configured");
+                    if (kf.has_key("*", "wallpaper0"))
+                        kf.remove_key("*", "wallpaper0");
+
+                    kf.save_to_file(configfile);
+                }
+
+            } else {
+                // read config file, set, save
+                std::string configfile = Glib::build_filename(Glib::get_user_config_dir(), "pcmanfm", profileName, Glib::ustring::compose("desktop-items-%1.conf", disp));
+
+                Glib::KeyFile kf;
+                kf.load_from_file(configfile);
+
+                kf.set_string("*", "wallpaper_mode", strmode);
+                kf.set_string("*", "wallpaper_common", "0");
+                kf.set_string("*", "wallpapers_configured", "1");
+                kf.set_string("*", "wallpaper0", file);
+                kf.set_string("*", "desktop_bg", Util::color_to_string(bgcolor));
+
+                if (kf.has_key("*", "wallpaper"))
+                    kf.remove_key("*", "wallpaper");
+
+                kf.save_to_file(configfile);
+            }
+
+            // send USR1 to pcmanfm
+            kill(pid, SIGUSR1);
+        } else {
+            std::cerr << "ERROR: _NET_WM_PID set on X root window, but pid not readable.\n";
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Gets all active screens on this display.
+ * This is used by the main window to determine what to show in the dropdown,
+ * if anything.
+ *
+ * Returns a map of display string to human-readable representation.
+ */
+std::map<Glib::ustring, Glib::ustring> SetBGPcmanfm::get_active_displays()
+{
+    Glib::RefPtr<Gdk::Display> disp = Gdk::DisplayManager::get()->get_default_display();
+    std::map<Glib::ustring, Glib::ustring> map_displays;
+
+    map_displays[this->get_fullscreen_key()] = _("Full Screen");
+
+    for (int i=0; i < disp->get_n_screens(); i++) {
+        Glib::RefPtr<Gdk::Screen> screen = disp->get_screen(i);
+
+        for (int j=0; j < screen->get_n_monitors(); j++) {
+            std::ostringstream ostr;
+            ostr << _("Screen") << " " << j;
+
+            map_displays[this->make_display_key(j)] = ostr.str();
+        }
+    }
+
+    return map_displays;
+}
+
+/**
+ * Gets the full key for "full screen" for this setter.
+ *
+ * For Pcmanfm, simply "-1".
+ */
+Glib::ustring SetBGPcmanfm::get_fullscreen_key() {
+    return this->make_display_key(-1);
+}
+
+/*
+ * Make a usable display key to pass to set_bg with a given head number.
+ *
+ * For Pcmanfm, return simply the head number.
+ */
+Glib::ustring SetBGPcmanfm::make_display_key(gint head) {
+    return Glib::ustring::compose("%1", head);
+}
+
+/**
+ * Returns if this background setter should be setting the Nitrogen configuration.
+ *
+ * The Pcmanfm mode is completely external.
+ */
+bool SetBGPcmanfm::save_to_config()
+{
+    return false;
 }
 
