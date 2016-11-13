@@ -5,6 +5,11 @@ nitrogen (1.6.0-1) UNRELEASED; urgency=medium
   * debian/patches:
     - Drop add_desktop_file.patch.
     - Rewrite fix_FTBFS_binutils-gold.patch.
+  * debian/control:
+    - Bump Standards-Version to 3.9.8.
+    - Bump dh minimal version to 10.
+    - Add Vcs fields.
+  * Rewrite debian/rules: Enable support for !linux. (Closes: #794901)
 
  -- Mateusz Łukasik <mati75@linuxmint.pl>  Sun, 13 Nov 2016 21:31:06 +0100
 
